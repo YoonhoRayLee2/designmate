@@ -135,35 +135,115 @@ function stripFence(s: string): string {
   return (fence ? fence[1] : t).trim();
 }
 
-async function callGroq(apiKey: string, body: object): Promise<string> {
-  const res = await fetch(GROQ_URL, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(`Groq API 오류 (${res.status}): ${detail.slice(0, 300)}`);
+const REQUEST_TIMEOUT_MS = 60_000;
+const MAX_RETRIES = 2;
+
+/** Error carrying a user-facing Korean message; raw details stay in server logs. */
+export class EngineError extends Error {
+  constructor(
+    public userMessage: string,
+    logDetail?: string,
+  ) {
+    super(logDetail || userMessage);
+    this.name = 'EngineError';
   }
-  const data = await res.json();
-  return data?.choices?.[0]?.message?.content ?? '';
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Map an HTTP status to a user-facing message. */
+function statusMessage(status: number): string {
+  if (status === 401 || status === 403) return 'API 키가 유효하지 않습니다. 서버 설정을 확인해 주세요.';
+  if (status === 413) return '요청이 너무 큽니다. 입력이나 첨부 이미지를 줄여 주세요.';
+  if (status === 429) return '요청이 몰려 잠시 제한되었습니다. 잠시 후 다시 시도해 주세요.';
+  if (status >= 500) return 'AI 서비스가 일시적으로 불안정합니다. 잠시 후 다시 시도해 주세요.';
+  return '화면 생성 중 오류가 발생했습니다.';
+}
+
+/**
+ * Call Groq with a timeout and bounded retries. Retries 429/5xx (honoring
+ * Retry-After when present); 4xx other than 429 fail immediately.
+ * `label` is used only for server-side logging.
+ */
+async function callGroq(
+  apiKey: string,
+  body: { model: string; [key: string]: unknown },
+  label: string,
+): Promise<string> {
+  let lastErr: EngineError | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const started = Date.now();
+    try {
+      const res = await fetch(GROQ_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const detail = (await res.text().catch(() => '')).slice(0, 300);
+        const retriable = res.status === 429 || res.status >= 500;
+        console.error(
+          `[groq] ${label} model=${body.model} status=${res.status} attempt=${attempt} ${Date.now() - started}ms ${detail}`,
+        );
+        lastErr = new EngineError(statusMessage(res.status), `${res.status} ${detail}`);
+        if (retriable && attempt < MAX_RETRIES) {
+          const retryAfter = Number(res.headers.get('retry-after'));
+          const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1500 * (attempt + 1);
+          await sleep(wait);
+          continue;
+        }
+        throw lastErr;
+      }
+
+      const data = await res.json();
+      console.info(`[groq] ${label} model=${body.model} ok attempt=${attempt} ${Date.now() - started}ms`);
+      return data?.choices?.[0]?.message?.content ?? '';
+    } catch (e) {
+      if (e instanceof EngineError) throw e;
+      const aborted = e instanceof Error && e.name === 'AbortError';
+      console.error(`[groq] ${label} model=${body.model} ${aborted ? 'timeout' : 'network-error'} attempt=${attempt}`, e);
+      lastErr = new EngineError(
+        aborted ? '응답이 지연되어 중단했습니다. 잠시 후 다시 시도해 주세요.' : 'AI 서비스에 연결하지 못했습니다.',
+        e instanceof Error ? e.message : String(e),
+      );
+      if (attempt < MAX_RETRIES) {
+        await sleep(1500 * (attempt + 1));
+        continue;
+      }
+      throw lastErr;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastErr ?? new EngineError('화면 생성 중 오류가 발생했습니다.');
 }
 
 /** Ask the vision model to describe reference images as text (for the text-only HTML model). */
 async function describeReferences(apiKey: string, message: ChatMessage): Promise<string> {
-  const raw = await callGroq(apiKey, {
-    model: VISION_MODEL,
-    temperature: 0.3,
-    max_tokens: 900,
-    messages: [
-      {
-        role: 'system',
-        content:
-          '첨부된 레퍼런스 UI 이미지를 분석해, 레이아웃 구조·주요 컴포넌트 배치·정보 위계·색/여백 감각을 한국어로 간결히 서술한다. HTML을 만들지 말고 설명만.',
-      },
-      toApiMessage(message),
-    ],
-  });
+  const raw = await callGroq(
+    apiKey,
+    {
+      model: VISION_MODEL,
+      temperature: 0.3,
+      max_tokens: 900,
+      messages: [
+        {
+          role: 'system',
+          content:
+            '첨부된 레퍼런스 UI 이미지를 분석해, 레이아웃 구조·주요 컴포넌트 배치·정보 위계·색/여백 감각을 한국어로 간결히 서술한다. HTML을 만들지 말고 설명만.',
+        },
+        toApiMessage(message),
+      ],
+    },
+    'vision',
+  );
   return raw.trim();
 }
 
@@ -181,18 +261,23 @@ export function createGroqEngine(apiKey: string): DesignEngine {
         ? `${PLANNER_PROMPT}\n\n[CURRENT_SPEC — 현재 화면 설계. 최신 지시로 이것을 수정하라]\n${JSON.stringify(req.currentSpec)}`
         : PLANNER_PROMPT;
 
-      const plannerRaw = await callGroq(apiKey, {
-        model: VISION_MODEL,
-        temperature: 0.4,
-        response_format: { type: 'json_object' },
-        messages: [{ role: 'system', content: plannerSystem }, ...req.messages.map(toApiMessage)],
-      });
+      const plannerRaw = await callGroq(
+        apiKey,
+        {
+          model: VISION_MODEL,
+          temperature: 0.4,
+          max_tokens: 1500,
+          response_format: { type: 'json_object' },
+          messages: [{ role: 'system', content: plannerSystem }, ...req.messages.map(toApiMessage)],
+        },
+        'planner',
+      );
 
       let plan: PlannerPayload;
       try {
         plan = JSON.parse(plannerRaw);
       } catch {
-        throw new Error('설계 판단 응답을 해석하지 못했습니다.');
+        throw new EngineError('설계 분석에 실패했습니다. 다시 시도해 주세요.', `planner non-JSON: ${plannerRaw.slice(0, 200)}`);
       }
 
       if (plan.mode === 'questions' && !plan.spec) {
@@ -208,8 +293,8 @@ export function createGroqEngine(apiKey: string): DesignEngine {
         try {
           const desc = await describeReferences(apiKey, lastUser);
           if (desc) referenceNote = `\n\n[레퍼런스 이미지 분석 — 이 구조/감각을 NH 톤으로 재해석해 반영]\n${desc}`;
-        } catch {
-          /* reference description is best-effort */
+        } catch (e) {
+          console.error('[groq] reference description failed (continuing without it)', e);
         }
       }
 
@@ -218,19 +303,23 @@ export function createGroqEngine(apiKey: string): DesignEngine {
         ? `${HTML_STYLE_GUIDE}\n\n[직전 화면 HTML을 최신 지시대로 수정하되, 무관한 부분은 유지한다.]`
         : HTML_STYLE_GUIDE;
 
-      const htmlRaw = await callGroq(apiKey, {
-        model: HTML_MODEL,
-        temperature: 0.5,
-        max_tokens: MAX_TOKENS,
-        messages: [
-          { role: 'system', content: htmlSystem },
-          ...textMessages,
-          {
-            role: 'user',
-            content: `위 요구사항과 아래 SPEC을 반영한 완전한 HTML 문서를 출력해줘.\nSPEC: ${JSON.stringify(spec)}${referenceNote}`,
-          },
-        ],
-      });
+      const htmlRaw = await callGroq(
+        apiKey,
+        {
+          model: HTML_MODEL,
+          temperature: 0.5,
+          max_tokens: MAX_TOKENS,
+          messages: [
+            { role: 'system', content: htmlSystem },
+            ...textMessages,
+            {
+              role: 'user',
+              content: `위 요구사항과 아래 SPEC을 반영한 완전한 HTML 문서를 출력해줘.\nSPEC: ${JSON.stringify(spec)}${referenceNote}`,
+            },
+          ],
+        },
+        'html',
+      );
 
       const html = stripFence(htmlRaw);
       const wireframeHtml = html.includes('<')

@@ -6,6 +6,7 @@ import WireframePreview from '@/components/WireframePreview';
 import type { ChatMessage, ClarifyingQuestion, EngineOutput, GenerateResult } from '@/lib/engine/types';
 
 const STORAGE_KEY = 'designmate.session.v2';
+const MAX_STORED_TURNS = 40;
 
 const EXAMPLES = [
   '조합원 대출 신청 화면',
@@ -45,21 +46,65 @@ function loadSession(): Session {
   return { turns: [] };
 }
 
+/** Drop base64 images before persisting — they blow past the localStorage quota. */
+function turnForStorage(t: Turn): Turn {
+  if (t.kind === 'user' && t.images) {
+    const { images, ...rest } = t;
+    void images;
+    return rest;
+  }
+  return t;
+}
+
+/** Persist turns, trimming oldest first if the quota is exceeded. */
+function persist(turns: Turn[]) {
+  let slice = turns.slice(-MAX_STORED_TURNS).map(turnForStorage);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ turns: slice }));
+      return;
+    } catch {
+      if (slice.length <= 2) {
+        try {
+          localStorage.removeItem(STORAGE_KEY);
+        } catch {
+          /* give up silently */
+        }
+        return;
+      }
+      slice = slice.slice(Math.ceil(slice.length / 2)); // drop older half and retry
+    }
+  }
+}
+
+function download(filename: string, content: string, mime: string) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function Home() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
   const [pendingImages, setPendingImages] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [lastFailed, setLastFailed] = useState<ChatMessage | null>(null);
+  const [copied, setCopied] = useState('');
   const threadRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setTurns(loadSession().turns);
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ turns }));
+    persist(turns);
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' });
   }, [turns]);
 
@@ -83,12 +128,16 @@ export default function Home() {
 
   async function callEngine(userMessage: ChatMessage) {
     setError('');
+    setLastFailed(null);
     setLoading(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       const res = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: buildHistory([userMessage]), currentSpec: latestResult?.spec }),
+        signal: controller.signal,
       });
       const data = (await res.json()) as EngineOutput | { error: string };
       if (!res.ok || 'error' in data) throw new Error(('error' in data && data.error) || '생성에 실패했습니다.');
@@ -99,10 +148,24 @@ export default function Home() {
         setTurns((prev) => [...prev, { kind: 'design', result: data }]);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : '오류가 발생했습니다.');
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        setError(''); // user-initiated cancel: no error banner
+      } else {
+        setError(e instanceof Error ? e.message : '오류가 발생했습니다.');
+        setLastFailed(userMessage); // enable retry
+      }
     } finally {
       setLoading(false);
+      abortRef.current = null;
     }
+  }
+
+  function cancel() {
+    abortRef.current?.abort();
+  }
+
+  function retry() {
+    if (lastFailed) callEngine(lastFailed);
   }
 
   function sendText(text: string) {
@@ -157,8 +220,10 @@ export default function Home() {
     setError('');
     setInput('');
   }
-  function copy(text: string) {
+  function copy(text: string, label: string) {
     navigator.clipboard?.writeText(text);
+    setCopied(label);
+    setTimeout(() => setCopied(''), 1500);
   }
 
   const started = turns.length > 0;
@@ -237,8 +302,24 @@ export default function Home() {
               );
             })}
 
-            {loading && <div className="bubble bot loading">생각 중…</div>}
-            {error && <div className="error">{error}</div>}
+            {loading && (
+              <div className="bubble bot loading">
+                생각 중…
+                <button type="button" className="inline-link" onClick={cancel}>
+                  취소
+                </button>
+              </div>
+            )}
+            {error && (
+              <div className="error" role="alert">
+                {error}
+                {lastFailed && (
+                  <button type="button" className="inline-link" onClick={retry} disabled={loading}>
+                    다시 시도
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {pendingImages.length > 0 && (
@@ -269,6 +350,7 @@ export default function Home() {
               onClick={() => fileRef.current?.click()}
               disabled={loading || pendingImages.length >= MAX_IMAGES}
               title="레퍼런스 이미지 첨부"
+              aria-label="레퍼런스 이미지 첨부"
             >
               📎
             </button>
@@ -291,11 +373,24 @@ export default function Home() {
             <h2>정의서 &amp; 와이어프레임</h2>
             {latestResult && (
               <div className="head-actions">
-                <button className="btn-ghost" onClick={() => copy(latestResult.specMarkdown)}>
+                {copied && <span className="copied-toast">{copied} 복사됨</span>}
+                <button className="btn-ghost" onClick={() => copy(latestResult.specMarkdown, '정의서')}>
                   정의서 복사
                 </button>
-                <button className="btn-ghost" onClick={() => copy(latestResult.wireframeHtml)}>
+                <button className="btn-ghost" onClick={() => copy(latestResult.wireframeHtml, 'HTML')}>
                   HTML 복사
+                </button>
+                <button
+                  className="btn-ghost"
+                  onClick={() => download('designmate-정의서.md', latestResult.specMarkdown, 'text/markdown')}
+                >
+                  정의서 ↓
+                </button>
+                <button
+                  className="btn-ghost"
+                  onClick={() => download('designmate-wireframe.html', latestResult.wireframeHtml, 'text/html')}
+                >
+                  HTML ↓
                 </button>
               </div>
             )}

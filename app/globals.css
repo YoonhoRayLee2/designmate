@@ -251,6 +251,26 @@ button { font-family: inherit; cursor: pointer; }
   color: #c0392b;
   font-size: 13px;
   padding: 8px 4px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.inline-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: underline;
+  padding: 0;
+}
+.inline-link:disabled { opacity: 0.5; cursor: default; }
+.bubble.loading { display: flex; align-items: center; gap: 10px; }
+.copied-toast {
+  font-size: 12px;
+  color: var(--accent);
+  align-self: center;
+  margin-right: 4px;
 }
 
 /* clarifying-question card */
