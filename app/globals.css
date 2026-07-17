@@ -80,6 +80,9 @@ button { font-family: inherit; cursor: pointer; }
 .btn-ghost:hover { color: var(--accent); border-color: var(--accent); }
 .head-actions { display: flex; gap: 8px; }
 
+/* mobile-only panel toggle — hidden on desktop */
+.mobile-tabs { display: none; }
+
 /* two-column layout */
 .results {
   flex: 1;
@@ -298,3 +301,64 @@ button { font-family: inherit; cursor: pointer; }
 .qopt:disabled { cursor: default; opacity: 0.7; }
 .qsubmit { width: 100%; margin-top: 4px; }
 .qsubmit:disabled { opacity: 0.5; }
+
+/* ===================== 모바일 (<= 768px) ===================== */
+@media (max-width: 768px) {
+  /* 헤더 축소: 설명 문구 숨김, 여백 축소 */
+  .app-header { padding: 10px 14px; }
+  .app-header h1 { font-size: 16px; }
+  .app-header p { display: none; }
+  .brand { gap: 10px; }
+  .brand-mark { width: 34px; height: 34px; font-size: 14px; }
+
+  /* 채팅/결과 전환 세그먼트 토글 표시 */
+  .mobile-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 8px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  .mobile-tab {
+    flex: 1;
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--text-dim);
+    border-radius: 8px;
+    padding: 9px 0;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .mobile-tab.on { background: var(--nh-green); color: #fff; border-color: var(--nh-green); }
+  .mobile-tab:disabled { opacity: 0.4; }
+
+  /* 한 번에 한 패널만 전체 높이로 */
+  .results { grid-template-columns: 1fr; }
+  .results .panel { display: none; }
+  .results.mobile-chat .chat-panel { display: flex; }
+  .results.mobile-result .result-panel { display: flex; }
+  .panel + .panel { border-left: none; border-top: none; }
+
+  /* 결과 내부(정의서/와이어프레임)는 세로로 쌓고 스크롤 허용 */
+  .output-body { display: block; overflow-y: auto; }
+  .output-split { display: block; }
+  .output-spec { border-right: none; border-bottom: 1px solid var(--border); }
+  .output-wire { min-height: 60vh; }
+
+  /* 입력창: iOS 자동 확대 방지 위해 16px, 터치 타깃 확보 */
+  .chat-form { padding: 10px 12px; }
+  .chat-form textarea { font-size: 16px; min-height: 48px; }
+  .attach-btn { width: 48px; height: 48px; }
+  .btn { padding: 12px 16px; }
+
+  /* 여백·버튼·말풍선 모바일 조정 */
+  .chat-thread { padding: 12px; }
+  .bubble { max-width: 92%; }
+  .panel-head { padding: 10px 14px; }
+  .head-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .spec-md { padding: 16px 14px; }
+
+  /* 와이어프레임 모바일 프리뷰 프레임이 화면을 넘지 않게 */
+  .wire-stage { padding: 10px; }
+  .wire-stage.mobile .wire-frame { width: 100%; }
+}

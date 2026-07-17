@@ -95,6 +95,8 @@ export default function Home() {
   const [error, setError] = useState('');
   const [lastFailed, setLastFailed] = useState<ChatMessage | null>(null);
   const [copied, setCopied] = useState('');
+  // Mobile-only: which panel is shown (desktop always shows both side by side).
+  const [mobileView, setMobileView] = useState<'chat' | 'result'>('chat');
   const threadRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -146,6 +148,7 @@ export default function Home() {
         setTurns((prev) => [...prev, { kind: 'questions', questions: data.questions }]);
       } else {
         setTurns((prev) => [...prev, { kind: 'design', result: data }]);
+        setMobileView('result'); // on mobile, jump to the freshly generated screen
       }
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
@@ -245,7 +248,28 @@ export default function Home() {
         )}
       </header>
 
-      <div className="results">
+      {/* Mobile-only segmented toggle: choose which panel fills the screen. */}
+      <div className="mobile-tabs" role="tablist" aria-label="화면 전환">
+        <button
+          role="tab"
+          aria-selected={mobileView === 'chat'}
+          className={`mobile-tab ${mobileView === 'chat' ? 'on' : ''}`}
+          onClick={() => setMobileView('chat')}
+        >
+          대화
+        </button>
+        <button
+          role="tab"
+          aria-selected={mobileView === 'result'}
+          className={`mobile-tab ${mobileView === 'result' ? 'on' : ''}`}
+          onClick={() => setMobileView('result')}
+          disabled={!latestResult}
+        >
+          결과
+        </button>
+      </div>
+
+      <div className={`results mobile-${mobileView}`}>
         <section className="panel chat-panel">
           <div className="panel-head">
             <h2>대화</h2>
@@ -368,7 +392,7 @@ export default function Home() {
           </form>
         </section>
 
-        <section className="panel">
+        <section className="panel result-panel">
           <div className="panel-head">
             <h2>정의서 &amp; 와이어프레임</h2>
             {latestResult && (
