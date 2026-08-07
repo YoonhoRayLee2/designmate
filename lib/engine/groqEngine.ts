@@ -101,9 +101,7 @@ function coerceQuestions(raw: unknown): ClarifyingQuestion[] {
 }
 
 function coerceSpec(raw: Partial<DesignSpec>, prompt: string): DesignSpec {
-  const screenType = SCREEN_TYPES.includes(raw.screenType as ScreenType)
-    ? (raw.screenType as ScreenType)
-    : 'list';
+  const screenType = SCREEN_TYPES.includes(raw.screenType as ScreenType) ? (raw.screenType as ScreenType) : 'list';
   return {
     title: raw.title?.trim() || prompt.slice(0, 24),
     screenType,
@@ -215,7 +213,10 @@ async function callGroq(
     } catch (e) {
       if (e instanceof EngineError) throw e;
       const aborted = e instanceof Error && e.name === 'AbortError';
-      console.error(`[groq] ${label} model=${body.model} ${aborted ? 'timeout' : 'network-error'} attempt=${attempt}`, e);
+      console.error(
+        `[groq] ${label} model=${body.model} ${aborted ? 'timeout' : 'network-error'} attempt=${attempt}`,
+        e,
+      );
       lastErr = new EngineError(
         aborted ? '응답이 지연되어 중단했습니다. 잠시 후 다시 시도해 주세요.' : 'AI 서비스에 연결하지 못했습니다.',
         e instanceof Error ? e.message : String(e),
@@ -289,10 +290,13 @@ export function createGroqEngine(apiKey: string): DesignEngine {
       try {
         // Strip any <think> wrapper, then parse; fall back to the first {...} block.
         const cleaned = stripThink(plannerRaw);
-        const jsonText = cleaned.startsWith('{') ? cleaned : cleaned.match(/\{[\s\S]*\}/)?.[0] ?? cleaned;
+        const jsonText = cleaned.startsWith('{') ? cleaned : (cleaned.match(/\{[\s\S]*\}/)?.[0] ?? cleaned);
         plan = JSON.parse(jsonText);
       } catch {
-        throw new EngineError('설계 분석에 실패했습니다. 다시 시도해 주세요.', `planner non-JSON: ${plannerRaw.slice(0, 200)}`);
+        throw new EngineError(
+          '설계 분석에 실패했습니다. 다시 시도해 주세요.',
+          `planner non-JSON: ${plannerRaw.slice(0, 200)}`,
+        );
       }
 
       if (plan.mode === 'questions' && !plan.spec) {

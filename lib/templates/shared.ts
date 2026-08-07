@@ -3,10 +3,7 @@
 // "wireframe", not a finished UI.
 
 function esc(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 export const wf = {
@@ -60,9 +57,7 @@ export const wf = {
   },
 
   tabbar(items: string[]): string {
-    const tabs = items
-      .map((t, i) => `<div class="wf-tab ${i === 0 ? 'active' : ''}">${esc(t)}</div>`)
-      .join('');
+    const tabs = items.map((t, i) => `<div class="wf-tab ${i === 0 ? 'active' : ''}">${esc(t)}</div>`).join('');
     return `<nav class="wf-tabbar">${tabs}</nav>`;
   },
 };

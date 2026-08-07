@@ -39,8 +39,7 @@ export interface ClarifyingQuestion {
 
 /** Engine either produces a design, or asks clarifying questions first. */
 export type EngineOutput =
-  | ({ mode: 'design' } & GenerateResult)
-  | { mode: 'questions'; questions: ClarifyingQuestion[] };
+  ({ mode: 'design' } & GenerateResult) | { mode: 'questions'; questions: ClarifyingQuestion[] };
 
 export interface ChatMessage {
   role: 'user' | 'assistant';

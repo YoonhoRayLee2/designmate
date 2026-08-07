@@ -11,6 +11,7 @@ NH농협 사내 화면 설계 도우미의 개선 작업을 시간순으로 누�
 체감 품질을 떨어뜨리는 안정성·UX·보안 문제에 집중.
 
 ### A. 엔진 안정성 — `lib/engine/groqEngine.ts`
+
 - `callGroq()`에 **60초 타임아웃**(AbortController) 추가 — 무한 로딩 방지
 - **429/5xx 자동 재시도**(최대 2회, Retry-After 존중) — free-tier rate limit 대응
 - HTTP 상태별 **사용자 친화 에러 메시지** 매핑(401/413/429/5xx/timeout), 원본은 서버 로그만
@@ -19,6 +20,7 @@ NH농협 사내 화면 설계 도우미의 개선 작업을 시간순으로 누�
 - `EngineError` 클래스 도입(사용자 메시지 / 로그 상세 분리)
 
 ### B. 입력 검증·보안 — `app/api/generate/route.ts`, `lib/markdown.ts`
+
 - 이미지 **MIME 화이트리스트**(png/jpg/webp/gif) — svg 등 XSS 벡터 차단
 - 이미지 **크기 상한 4MB**·개수 5개 서버측 강제, 초과 시 400
 - 텍스트 입력 길이 상한(8000자)
@@ -27,6 +29,7 @@ NH농협 사내 화면 설계 도우미의 개선 작업을 시간순으로 누�
 - markdown escape에 `"`,`'` 추가 — 속성 컨텍스트 XSS 방어
 
 ### C. 프론트 안정성·상태 — `app/page.tsx`, `app/error.tsx`
+
 - 로딩 중 **요청 취소** 버튼(AbortController)
 - 실패 시 **다시 시도** 버튼(마지막 입력 유지)
 - **localStorage 용량 보호**: base64 이미지는 저장 제외, QuotaExceeded 시 오래된 turn부터 잘라 재시도, 최근 40턴 상한
@@ -34,18 +37,22 @@ NH농협 사내 화면 설계 도우미의 개선 작업을 시간순으로 누�
 - 복사 시 **"복사됨" 피드백**
 
 ### D. 결과물 내보내기 — `app/page.tsx`
+
 - 와이어프레임 **HTML 다운로드**(.html)
 - 정의서 **Markdown 다운로드**(.md)
 
 ### E. 환경변수 경고 — `lib/engine/index.ts`
+
 - `GROQ_API_KEY` 미설정 시 `console.warn` — 조용한 저품질 폴백 방지
 
 ### 검증 결과
+
 - `npm run build` 통과(타입 포함)
 - SVG 이미지 첨부 → 400 ✓ / 빈 입력 → 400 ✓ / 정상 요청 → design + HTML ✓
 - 서버 로그에 `[groq] planner ... ok 992ms`, `[groq] html ... ok 4062ms` 출력 확인 ✓
 
 ### 제외(백로그)
+
 - 테스트/CI/ESLint/Prettier, render.yaml, /api/health
 - 컴포넌트 분리 리팩토링, 다중 프로젝트 히스토리(DB), 스트리밍(SSE)
 
@@ -56,14 +63,17 @@ NH농협 사내 화면 설계 도우미의 개선 작업을 시간순으로 누�
 **배경:** 조사에서 Next.js 14.2.5의 취약점(critical 포함)이 다수 발견됨. 실배포 상태라 시급.
 
 ### 변경 — `package.json`
+
 - `next` **14.2.5 → 14.2.35** (14.2.x 내 패치, breaking change 없음). postcss 전이 취약점도 함께 해소.
 - `engines.node: ">=18.18.0"` 추가 — 배포/로컬 Node 버전 하한 고정.
 
 ### 판단 — 남은 advisory는 수용
+
 - `npm audit`이 완전 제거하려면 **next@16(major)** 를 요구하나, App Router breaking 위험이 커 이번 범위 밖.
 - 남은 항목은 이 앱이 쓰지 않는 기능(next/image 최적화, i18n 미들웨어, CSP nonce, RSC 캐시 등)이라 실질 위험 낮음 → 14.2.35에서 정지.
 
 ### 검증
+
 - `npm install` 후 `npm run build` 통과 ✓ (critical → 해소, 잔여는 위 수용 항목)
 
 ---
@@ -73,11 +83,13 @@ NH농협 사내 화면 설계 도우미의 개선 작업을 시간순으로 누�
 **배경:** 모바일에서 화면이 뭉개짐. 근본 원인은 뷰포트 메타 부재 + 데스크톱 전용 2분할 레이아웃.
 
 ### 변경
+
 - **`app/layout.tsx`**: `viewport`(width=device-width, initialScale=1) 추가 — 모바일 렌더의 근본 수정. (pinch-zoom은 접근성 위해 허용)
 - **`app/page.tsx`**: 모바일 전용 **대화/결과 세그먼트 토글**(`mobileView` 상태). 생성 성공 시 자동으로 '결과'로 전환. 데스크톱은 기존 2분할 유지(토글 숨김).
 - **`app/globals.css`**: `@media (max-width:768px)` 블록 신설 — 헤더 축소·설명 숨김, 토글 표시, 한 번에 한 패널만 전체 높이, 결과 내부 세로 스택, 입력창 16px(iOS 확대 방지)·터치 타깃 48px, 헤더 버튼 줄바꿈, 여백 조정.
 
 ### 검증 (헤드리스 크롬 390px)
+
 - 초기 대화 뷰: 헤더·칩·입력창 온전, 글자 정상 크기 ✓
 - 실제 E2E 생성 → '결과' 탭 자동 전환, 정의서·표 잘림 없음, 헤더 버튼 줄바꿈 ✓
 - 데스크톱(1280px) 회귀: 기존 2분할 그대로 ✓
@@ -90,16 +102,19 @@ NH농협 사내 화면 설계 도우미의 개선 작업을 시간순으로 누�
 **배경:** `meta-llama/llama-4-scout-17b-16e-instruct`가 Groq에서 퇴출(404 model_not_found)되어 모든 요청 실패. 무료 모델은 예고 없이 사라짐.
 
 ### 조사
+
 - Groq `/models` 조회 → 현재 비전 지원은 `qwen/qwen3.6-27b`가 유일. `gpt-oss-120b`는 텍스트 전용(이미지 넣으면 400).
 - qwen은 `<think>…</think>` 추론 블록을 뱉어 **json_object 모드에서 검증 실패**(planner 부적합).
 
 ### 변경 — `lib/engine/groqEngine.ts`
+
 - **planner(JSON 판단+spec)를 `gpt-oss-120b`로 이전** — 텍스트 전용 메시지로 호출(이미지는 제거). 신뢰성 있는 JSON 확보. 이미지 첨부 시엔 "이미지는 별도 분석되니 design으로 진행" 힌트 추가.
 - **`VISION_MODEL` = `qwen/qwen3.6-27b`** — `describeReferences`(이미지→텍스트 분석)에만 사용.
 - `stripThink()` 추가 — qwen의 `<think>` 블록 제거(describe/planner 파싱 방어). vision max_tokens 1600, planner 2000으로 상향.
 - `.env.local.example`의 `GROQ_VISION_MODEL` 기본값 갱신.
 
 ### 검증 (dev E2E)
+
 - 텍스트 생성: design + HTML 6664자 ✓
 - 이미지 참조: qwen이 3-컬럼 레이아웃 분석 → designNotes에 반영, HTML 10367자 ✓
 - 로그: `planner ok(gpt-oss-120b)`, `vision ok(qwen)`, `html ok(gpt-oss-120b)`; 429 발생 시 재시도로 자동 복구(attempt=1 ok) ✓
@@ -112,10 +127,32 @@ NH농협 사내 화면 설계 도우미의 개선 작업을 시간순으로 누�
 **배경:** 생성된 화면(정적 목업) 안의 링크/버튼/폼을 누르면 미리보기 iframe이 실제로 페이지 이동·폼 제출을 시도해 화면이 깨졌다. (`sandbox="allow-same-origin"`은 스크립트/폼제출은 막지만 `<a href>` 내비게이션은 iframe 내부에서 발생.)
 
 ### 변경 — `components/WireframePreview.tsx`
+
 - 미리보기용 HTML의 `<head>`에 `pointer-events:none` 스타일 스니펫 주입(`makeInert`) — a/button/input/form 등 인터랙션 요소 클릭을 무력화. 목업이므로 눌러도 그대로 유지.
 - **다운로드되는 HTML은 원본 그대로**(주입은 미리보기 전용) — 실제 산출물은 작동 상태 유지.
 
 ### 검증 (헤드리스 크롬 A/B)
+
 - 수정 전: 링크 클릭 → `example.com/gone`으로 이동됨(버그 재현) ✓
 - 수정 후: 링크 클릭 → `about:blank` 그대로, 이동 없음 ✓
 - `npm run build` 통과 ✓
+
+---
+
+## Phase 3 — 품질 도구 (2026-08-08)
+
+**배경:** ESLint 설정 파일이 없어 `next lint`가 CI에서 대화형 프롬프트로 멈추고, 포맷터·타입체크 스크립트가 없었다.
+
+### 변경
+
+- **ESLint**: `eslint@8` + `eslint-config-next@14.2.35` 추가, `.eslintrc.json`(`next/core-web-vitals`) 생성.
+- **Prettier**: `prettier@3` 추가, `.prettierrc.json`(singleQuote, trailingComma:all, printWidth:120) + `.prettierignore`. 전체 소스 1회 포맷 정렬(17개 파일).
+- **package.json 스크립트**: `typecheck`(tsc --noEmit), `format`, `format:check` 추가. `engines.node` 유지.
+
+### 검증
+
+- `npm run lint` → No ESLint warnings or errors ✓
+- `npm run typecheck` → exit 0 ✓
+- `npm run format:check` → All matched files use Prettier code style ✓
+- `npm run build` 통과 ✓
+- 참고: `npm audit`의 잔여 항목은 next@16(major) 필요분(수용) + dev 전용 eslint 의존성이라 런타임 영향 없음.

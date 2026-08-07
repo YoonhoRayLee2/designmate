@@ -38,7 +38,10 @@ export async function POST(req: Request) {
       if (m && Array.isArray(m.images)) {
         for (const img of m.images) {
           if (typeof img === 'string' && img.startsWith('data:') && !ALLOWED_IMAGE.test(img)) {
-            return NextResponse.json({ error: '지원하지 않는 이미지 형식입니다. (PNG/JPG/WEBP/GIF만 가능)' }, { status: 400 });
+            return NextResponse.json(
+              { error: '지원하지 않는 이미지 형식입니다. (PNG/JPG/WEBP/GIF만 가능)' },
+              { status: 400 },
+            );
           }
           if (typeof img === 'string' && img.length > MAX_IMAGE_CHARS) {
             return NextResponse.json({ error: '이미지가 너무 큽니다. 4MB 이하로 첨부해 주세요.' }, { status: 400 });
@@ -51,10 +54,7 @@ export async function POST(req: Request) {
   const messages: ChatMessage[] = Array.isArray(body.messages)
     ? body.messages
         .filter(
-          (m): m is ChatMessage =>
-            m &&
-            (m.role === 'user' || m.role === 'assistant') &&
-            typeof m.content === 'string',
+          (m): m is ChatMessage => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string',
         )
         .map((m) => {
           const images = sanitizeImages(m.images);

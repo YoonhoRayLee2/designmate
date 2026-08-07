@@ -110,8 +110,9 @@ export default function Home() {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' });
   }, [turns]);
 
-  const latestResult = [...turns].reverse().find((t): t is Extract<Turn, { kind: 'design' }> => t.kind === 'design')
-    ?.result;
+  const latestResult = [...turns]
+    .reverse()
+    .find((t): t is Extract<Turn, { kind: 'design' }> => t.kind === 'design')?.result;
 
   // Build the conversation history to send to the engine from the turn list.
   // Past images are dropped from history (kept only on the current message)
@@ -383,7 +384,9 @@ export default function Home() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}
               placeholder={
-                started ? '수정/추가 요청을 입력하세요 (⌘/Ctrl + Enter)' : '예: 조합원 대출 신청 화면 만들어줘 (⌘/Ctrl + Enter)'
+                started
+                  ? '수정/추가 요청을 입력하세요 (⌘/Ctrl + Enter)'
+                  : '예: 조합원 대출 신청 화면 만들어줘 (⌘/Ctrl + Enter)'
               }
             />
             <button className="btn" type="submit" disabled={loading}>

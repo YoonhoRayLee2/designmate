@@ -28,26 +28,15 @@ export default function WireframePreview({ html }: { html: string }) {
   return (
     <div className="wire-wrap">
       <div className="wire-toolbar">
-        <button
-          className={`wire-tog ${view === 'desktop' ? 'on' : ''}`}
-          onClick={() => setView('desktop')}
-        >
+        <button className={`wire-tog ${view === 'desktop' ? 'on' : ''}`} onClick={() => setView('desktop')}>
           🖥 데스크톱
         </button>
-        <button
-          className={`wire-tog ${view === 'mobile' ? 'on' : ''}`}
-          onClick={() => setView('mobile')}
-        >
+        <button className={`wire-tog ${view === 'mobile' ? 'on' : ''}`} onClick={() => setView('mobile')}>
           📱 모바일
         </button>
       </div>
       <div className={`wire-stage ${view}`}>
-        <iframe
-          className="wire-frame"
-          title="wireframe"
-          srcDoc={inertHtml}
-          sandbox="allow-same-origin"
-        />
+        <iframe className="wire-frame" title="wireframe" srcDoc={inertHtml} sandbox="allow-same-origin" />
       </div>
     </div>
   );

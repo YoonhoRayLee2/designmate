@@ -2,9 +2,7 @@ import { wf } from './shared';
 import type { DesignSpec } from '../engine/types';
 
 export function formBody(spec: DesignSpec): string {
-  const fields = ['이름', '연락처', '이메일', '내용']
-    .map((f) => wf.input(f))
-    .join('');
+  const fields = ['이름', '연락처', '이메일', '내용'].map((f) => wf.input(f)).join('');
   return `
     ${wf.header(spec.title, '')}
     <div class="wf-body">

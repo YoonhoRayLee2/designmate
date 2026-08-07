@@ -59,7 +59,11 @@ function buildSpec(prompt: string): DesignSpec {
     list: {
       summary: `${domain} 항목을 탐색하고 필터링하는 목록형 화면.`,
       screens: [
-        { name: '목록 화면', purpose: '항목을 카드/리스트로 훑어보기', components: ['검색바', '필터 칩', '카드 그리드', '하단 탭바'] },
+        {
+          name: '목록 화면',
+          purpose: '항목을 카드/리스트로 훑어보기',
+          components: ['검색바', '필터 칩', '카드 그리드', '하단 탭바'],
+        },
         { name: '검색 화면', purpose: '키워드로 항목 찾기', components: ['검색 입력', '최근 검색어', '결과 목록'] },
       ],
       components: [
@@ -68,12 +72,20 @@ function buildSpec(prompt: string): DesignSpec {
         { name: '하단 탭바', description: '주요 섹션 간 이동', states: ['활성', '비활성'] },
       ],
       userFlow: ['목록 진입', '필터/검색으로 좁히기', '카드 선택', '상세 화면 이동'],
-      designNotes: ['무한 스크롤 또는 페이지네이션 결정 필요', '빈 상태(Empty state) 문구 정의', '카드 탭 영역 충분히 확보(최소 44px)'],
+      designNotes: [
+        '무한 스크롤 또는 페이지네이션 결정 필요',
+        '빈 상태(Empty state) 문구 정의',
+        '카드 탭 영역 충분히 확보(최소 44px)',
+      ],
     },
     detail: {
       summary: `단일 ${domain} 항목의 상세 정보와 핵심 액션을 담는 화면.`,
       screens: [
-        { name: '상세 화면', purpose: '항목 정보 확인 및 액션 수행', components: ['대표 이미지', '핵심 정보', '설명', '하단 고정 CTA'] },
+        {
+          name: '상세 화면',
+          purpose: '항목 정보 확인 및 액션 수행',
+          components: ['대표 이미지', '핵심 정보', '설명', '하단 고정 CTA'],
+        },
       ],
       components: [
         { name: '이미지 갤러리', description: '대표 이미지 + 추가 이미지 스와이프', states: ['단일', '다중', '로딩'] },
@@ -81,12 +93,20 @@ function buildSpec(prompt: string): DesignSpec {
         { name: '하단 고정 CTA', description: '주요 전환 액션 버튼', states: ['활성', '비활성', '로딩'] },
       ],
       userFlow: ['목록에서 진입', '정보 확인', '이미지 탐색', '주요 액션(구매/신청) 수행'],
-      designNotes: ['CTA는 스크롤과 무관하게 하단 고정', '공유/찜 등 보조 액션 위치 정의', '긴 설명은 접기/펼치기 고려'],
+      designNotes: [
+        'CTA는 스크롤과 무관하게 하단 고정',
+        '공유/찜 등 보조 액션 위치 정의',
+        '긴 설명은 접기/펼치기 고려',
+      ],
     },
     form: {
       summary: `${domain} 정보를 입력·제출하는 폼 화면.`,
       screens: [
-        { name: '입력 화면', purpose: '필수/선택 정보 입력', components: ['입력 필드', '파일 첨부', '유효성 안내', '제출 버튼'] },
+        {
+          name: '입력 화면',
+          purpose: '필수/선택 정보 입력',
+          components: ['입력 필드', '파일 첨부', '유효성 안내', '제출 버튼'],
+        },
         { name: '완료 화면', purpose: '제출 결과 확인', components: ['완료 메시지', '후속 액션'] },
       ],
       components: [
@@ -113,7 +133,11 @@ function buildSpec(prompt: string): DesignSpec {
     auth: {
       summary: `${domain} 서비스 접근을 위한 로그인/회원가입 화면.`,
       screens: [
-        { name: '로그인 화면', purpose: '기존 사용자 인증', components: ['아이디/비번 입력', '로그인 버튼', '소셜 로그인', '가입 링크'] },
+        {
+          name: '로그인 화면',
+          purpose: '기존 사용자 인증',
+          components: ['아이디/비번 입력', '로그인 버튼', '소셜 로그인', '가입 링크'],
+        },
         { name: '회원가입 화면', purpose: '신규 계정 생성', components: ['입력 필드', '약관 동의', '가입 버튼'] },
       ],
       components: [
