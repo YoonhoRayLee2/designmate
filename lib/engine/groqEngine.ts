@@ -1,10 +1,12 @@
 import type {
   ChatMessage,
   ClarifyingQuestion,
+  DataField,
   DesignEngine,
   DesignSpec,
   EngineOutput,
   GenerateRequest,
+  PermissionRow,
   ScreenType,
 } from './types';
 import { renderSpecMarkdown } from '../spec';
@@ -21,7 +23,7 @@ const VISION_MODEL = process.env.GROQ_VISION_MODEL || 'qwen/qwen3.6-27b';
 // leave headroom for the system prompt, spec, and conversation history.
 const MAX_TOKENS = 5500;
 
-const SCREEN_TYPES: ScreenType[] = ['list', 'detail', 'form', 'dashboard', 'auth'];
+const SCREEN_TYPES: ScreenType[] = ['list', 'detail', 'form', 'dashboard', 'auth', 'approval', 'wizard', 'report'];
 
 const NH_CONTEXT = `[맥락] 이것은 일반 소비자 앱이 아니라 NH농협(은행/축산·농업 협동조합)의 사내·업무용 시스템 화면이다.
 - 사용자: 주로 영업점 직원, 본부 담당자, 관리자 등 내부 사용자. (조합원 대상 화면을 명시하면 그에 맞춘다)
@@ -49,15 +51,28 @@ ${NH_CONTEXT}
   "mode":"design",
   "spec":{
     "title":"화면 제목 (24자 이내)",
-    "screenType":"list | detail | form | dashboard | auth 중 하나",
+    "screenType":"list | detail | form | dashboard | auth | approval | wizard | report 중 하나",
     "domain":"도메인 (예: 여신, 수신, 조합원관리, 일반 등)",
     "summary":"이 화면이 무엇을 하는지 1~2문장",
     "screens":[{ "name":"화면명","purpose":"목적","components":["요소1","요소2"] }],
     "components":[{ "name":"컴포넌트명","description":"설명","states":["기본","오류"] }],
     "userFlow":["단계1","단계2"],
-    "designNotes":["유의점 (레퍼런스 이미지가 있으면 무엇을 참고할지 한 줄 포함)"]
+    "designNotes":["유의점 (레퍼런스 이미지가 있으면 무엇을 참고할지 한 줄 포함)"],
+    "dataFields":[{ "name":"필드명","type":"타입(문자열/숫자/날짜/코드 등)","required":true,"rule":"검증규칙/자릿수","masking":"마스킹 규칙(있으면)" }],
+    "permissions":[{ "role":"역할(예: 영업점 직원, 지점장, 본부 담당자)","actions":"허용 액션(예: 조회/등록, 승인)" }],
+    "exceptions":["예외·오류 케이스(예: 권한 없음, 잔액 부족, 중복 신청)"],
+    "integrations":["연계 시스템(예: 여신원장 API, 신용평가 전문)"],
+    "nonFunctional":["비기능 요구(예: 조회 3초 내, 개인정보 접근 감사로그)"]
   }
-}`;
+}
+
+[screenType 판단 가이드]
+- approval: 승인/결재/반려 등 결재선·처리 액션이 핵심인 화면
+- wizard: 여러 단계를 순차 진행하는 신청/등록(단계 표시기 있음)
+- report: 조회 조건 → 표/집계 결과 출력·인쇄·다운로드가 핵심인 화면
+- 위에 해당 없으면 기존 list/detail/form/dashboard/auth 중 선택
+
+[dataFields~nonFunctional 규칙] 모두 선택 항목이다. 이 사내 업무 화면에서 실제로 의미 있는 것만 채우고, 해당 없으면 필드를 아예 빼거나 빈 배열로 둔다. 억지로 지어내지 않는다. 입력 폼/조회 화면이면 dataFields는 되도록 채운다.`;
 
 // --- Call B: HTML author. Plain-text output (NOT JSON) so large HTML isn't truncated. ---
 const HTML_STYLE_GUIDE = `너는 NH농협 사내 시스템 프론트엔드 개발자다. 주어진 설계(SPEC)와 요구사항을 바탕으로 실제 서비스 수준의 고충실도 화면 HTML을 만든다.
@@ -109,6 +124,41 @@ function coerceQuestions(raw: unknown): ClarifyingQuestion[] {
     .slice(0, 4);
 }
 
+/** Keep only string entries of an array; drop everything else. */
+function coerceStringList(raw: unknown): string[] {
+  return Array.isArray(raw) ? raw.filter((s): s is string => typeof s === 'string' && s.trim() !== '') : [];
+}
+
+function coerceDataFields(raw: unknown): DataField[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((f): DataField | null => {
+      if (!f || typeof f.name !== 'string') return null;
+      return {
+        name: f.name,
+        type: typeof f.type === 'string' ? f.type : '-',
+        required: f.required === true,
+        rule: typeof f.rule === 'string' ? f.rule : undefined,
+        masking: typeof f.masking === 'string' ? f.masking : undefined,
+      };
+    })
+    .filter((f): f is DataField => f !== null);
+}
+
+function coercePermissions(raw: unknown): PermissionRow[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((p): PermissionRow | null =>
+      p && typeof p.role === 'string' && typeof p.actions === 'string' ? { role: p.role, actions: p.actions } : null,
+    )
+    .filter((p): p is PermissionRow => p !== null);
+}
+
+/** Attach an optional field only when the coerced list is non-empty. */
+function optional<T>(list: T[]): T[] | undefined {
+  return list.length ? list : undefined;
+}
+
 function coerceSpec(raw: Partial<DesignSpec>, prompt: string): DesignSpec {
   const screenType = SCREEN_TYPES.includes(raw.screenType as ScreenType) ? (raw.screenType as ScreenType) : 'list';
   return {
@@ -120,6 +170,11 @@ function coerceSpec(raw: Partial<DesignSpec>, prompt: string): DesignSpec {
     components: Array.isArray(raw.components) ? raw.components : [],
     userFlow: Array.isArray(raw.userFlow) ? raw.userFlow : [],
     designNotes: Array.isArray(raw.designNotes) ? raw.designNotes : [],
+    dataFields: optional(coerceDataFields(raw.dataFields)),
+    permissions: optional(coercePermissions(raw.permissions)),
+    exceptions: optional(coerceStringList(raw.exceptions)),
+    integrations: optional(coerceStringList(raw.integrations)),
+    nonFunctional: optional(coerceStringList(raw.nonFunctional)),
   };
 }
 

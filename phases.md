@@ -243,3 +243,25 @@ NH농협 사내 화면 설계 도우미의 개선 작업을 시간순으로 누�
 - `npm run lint` / `typecheck` / `format:check` / `build` 모두 통과 ✓
 - **캐시 A/B(prod 서버, 동일 페이로드 2회)**: 1회차 25.1s(planner+html, 429 자동 복구 포함) → 2회차 **0.006s** `[api/generate] cache hit`, 응답 바디 **byte-identical** ✓ (~4000× 단축)
 - **생성 HTML 마커 검증**: NH그린 `#00873c`, `<label>`, `<table>`+`scope/caption`, `<main>/<header>/<nav>` 랜드마크, `aria-label` 모두 실제 출력에 존재 ✓
+
+---
+
+## Phase 7 — 정의서 구조 심화(A1) + 화면 유형 확장(A3) (2026-08-08)
+
+**배경:** 산출물을 실무 설계서로 바로 쓸 수 있게 정의서 스키마를 심화하고, 사내 업무 화면 커버리지를 위해 화면 유형을 확장. 스키마 변경이라 CLAUDE.md 원칙 5대로 5개 지점(types→spec→planner→ruleEngine→templates)을 함께 동기화.
+
+### 변경
+
+- **A1. 정의서 구조 심화** — `DesignSpec`에 선택 필드 5종 추가(모두 optional, 없으면 정의서에서 섹션 생략):
+  - `dataFields`(필드명·타입·필수·검증/자릿수·마스킹), `permissions`(역할별 허용 액션), `exceptions`(예외·오류), `integrations`(연계 시스템), `nonFunctional`(비기능 요구). `DataField`/`PermissionRow` 인터페이스 신설.
+  - `spec.ts`: 값이 있을 때만 렌더하는 5개 섹션 추가(데이터 필드 명세/권한 매트릭스/예외·오류/연계/비기능).
+  - `groqEngine.ts`: planner 프롬프트에 5개 필드 스키마+작성 규칙(억지로 지어내지 말 것) 추가. `coerceSpec`에 방어 헬퍼(`coerceDataFields`/`coercePermissions`/`coerceStringList`/`optional`) — 빈 배열이면 필드 자체를 undefined로 두어 정의서에서 생략.
+- **A3. 화면 유형 확장** — `ScreenType`에 `approval`(승인/결재), `wizard`(다단계 마법사), `report`(리포트/출력) 추가(5종→8종):
+  - `types.ts`/`groqEngine.SCREEN_TYPES`/`spec.ts TYPE_LABEL` 동기화, planner에 유형 판단 가이드 추가.
+  - `templates/approval.ts`·`wizard.ts`·`report.ts` 신설(기존 `wf.*` 프리미티브 재사용, 저충실도 톤 유지). `ruleEngine`의 `TYPE_RULES`(NH 키워드: 승인/결재/반려·마법사/단계별·리포트/집계/실적), `specsByType`(3종 spec, 일부 A1 예시 포함), `BODY_BY_TYPE` 동기화.
+
+### 검증
+
+- `npm run typecheck` / `lint` / `format:check` / `build` 모두 통과 ✓ (`Record<ScreenType,...>`가 8종 전부 커버 강제)
+- **규칙 엔진 E2E**(키 없이 폴백): "여신 승인 결재"→`approval`(권한매트릭스·예외 섹션 O, 승인 버튼 O), "월별 여신 실적 집계 리포트"→`report`(데이터 필드 명세 O, 내보내기 O), "대출 신청 다단계 마법사"→`wizard`(진행 단계 O) ✓
+- **Groq E2E**(실키): "조합원 대출 승인/반려 결재 화면" → `screenType=approval`, **A1 5개 섹션 전부 렌더**, dataFields 5행·permissions 2행 LLM이 채움, NH그린 O, 429 자동 복구 ✓

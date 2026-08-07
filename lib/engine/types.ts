@@ -1,4 +1,12 @@
-export type ScreenType = 'list' | 'detail' | 'form' | 'dashboard' | 'auth';
+export type ScreenType =
+  | 'list'
+  | 'detail'
+  | 'form'
+  | 'dashboard'
+  | 'auth'
+  | 'approval' // 승인/결재 워크플로우
+  | 'wizard' // 다단계 마법사
+  | 'report'; // 리포트/출력
 
 export interface ScreenDef {
   name: string;
@@ -12,6 +20,21 @@ export interface ComponentDef {
   states?: string[];
 }
 
+/** 데이터 필드 명세 한 행 (A1). */
+export interface DataField {
+  name: string; // 필드명 (예: 조합원번호)
+  type: string; // 타입 (예: 문자열, 숫자, 날짜, 코드)
+  required: boolean; // 필수 여부
+  rule?: string; // 검증 규칙/자릿수 (예: 13자리, YYYY-MM-DD)
+  masking?: string; // 마스킹 규칙 (예: 뒤 4자리만 표시)
+}
+
+/** 역할별 권한 매트릭스 한 행 (A1). */
+export interface PermissionRow {
+  role: string; // 역할 (예: 영업점 직원, 지점장, 본부 담당자)
+  actions: string; // 허용 액션 (예: 조회/등록/수정, 승인)
+}
+
 export interface DesignSpec {
   title: string;
   screenType: ScreenType;
@@ -21,6 +44,17 @@ export interface DesignSpec {
   components: ComponentDef[];
   userFlow: string[];
   designNotes: string[];
+  // --- A1: 실무 설계서용 심화 항목 (모두 선택 — 없으면 정의서에서 섹션 생략) ---
+  /** 데이터 필드 명세 (타입·필수·검증·마스킹) */
+  dataFields?: DataField[];
+  /** 권한/역할 매트릭스 */
+  permissions?: PermissionRow[];
+  /** 예외·오류 케이스 */
+  exceptions?: string[];
+  /** 연계 시스템 (API/전문/타 시스템) */
+  integrations?: string[];
+  /** 비기능 요구 (성능·보안·감사 등) */
+  nonFunctional?: string[];
 }
 
 export interface GenerateResult {

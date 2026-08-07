@@ -5,10 +5,16 @@ import { detailBody } from '../templates/detail';
 import { formBody } from '../templates/form';
 import { dashboardBody } from '../templates/dashboard';
 import { authBody } from '../templates/auth';
+import { approvalBody } from '../templates/approval';
+import { wizardBody } from '../templates/wizard';
+import { reportBody } from '../templates/report';
 import { renderSpecMarkdown } from '../spec';
 
 const TYPE_RULES: { type: ScreenType; keywords: string[] }[] = [
   { type: 'auth', keywords: ['로그인', '가입', '회원', 'signin', 'signup', 'login', 'auth', '인증'] },
+  { type: 'approval', keywords: ['승인', '결재', '반려', '전결', '기안', '결재선', 'approval'] },
+  { type: 'wizard', keywords: ['마법사', '단계별', '다단계', '스텝', 'wizard', '단계 입력'] },
+  { type: 'report', keywords: ['리포트', '보고서', '집계', '출력', '통계표', '실적', 'report'] },
   { type: 'dashboard', keywords: ['대시보드', '통계', '관리자', '어드민', 'dashboard', 'admin', '지표', '현황'] },
   { type: 'detail', keywords: ['상세', '디테일', 'detail', '프로필', '페이지 상세'] },
   { type: 'form', keywords: ['폼', '입력', '등록', '작성', '신청', 'form', '문의', '예약', '주문서'] },
@@ -47,6 +53,9 @@ const BODY_BY_TYPE: Record<ScreenType, (s: DesignSpec) => string> = {
   form: formBody,
   dashboard: dashboardBody,
   auth: authBody,
+  approval: approvalBody,
+  wizard: wizardBody,
+  report: reportBody,
 };
 
 function buildSpec(prompt: string): DesignSpec {
@@ -147,6 +156,71 @@ function buildSpec(prompt: string): DesignSpec {
       ],
       userFlow: ['진입', '자격 증명 입력', '인증', '성공 시 홈 / 실패 시 오류 안내'],
       designNotes: ['비밀번호 정책/표시 토글 정의', '소셜 로그인 제공자 확정', '오류 메시지는 보안상 모호하게'],
+    },
+    approval: {
+      summary: `${domain} 요청을 결재선에 따라 검토·승인/반려하는 워크플로우 화면.`,
+      screens: [
+        {
+          name: '결재 화면',
+          purpose: '요청 내용 확인 후 승인/반려 처리',
+          components: ['결재선 표시기', '요청 정보', '의견 입력', '승인/반려 버튼'],
+        },
+        { name: '결재 이력', purpose: '단계별 처리 내역 조회', components: ['처리자', '처리일시', '의견'] },
+      ],
+      components: [
+        { name: '결재선 표시기', description: '기안→검토→승인 단계와 현재 위치', states: ['대기', '진행중', '완료'] },
+        { name: '승인/반려 버튼', description: '결재 처리 액션', states: ['활성', '비활성', '로딩'] },
+        { name: '의견 입력', description: '반려 시 사유 필수', states: ['기본', '오류(사유 누락)'] },
+      ],
+      userFlow: ['결재함 진입', '요청 상세 확인', '의견 입력', '승인 또는 반려', '기안자에게 통보'],
+      designNotes: ['반려 시 사유 필수 입력', '전결/대결 규정 반영', '처리 이력은 감사 대상'],
+      permissions: [
+        { role: '기안자(영업점 직원)', actions: '기안, 조회' },
+        { role: '결재자(지점장)', actions: '조회, 승인, 반려' },
+      ],
+      exceptions: ['결재 권한 없음', '이미 처리된 건 재처리 시도', '반려 사유 미입력'],
+      nonFunctional: ['결재 처리 이력 감사로그 보관', '결재선 규정 변경 이력 관리'],
+    },
+    wizard: {
+      summary: `${domain} 신청/등록을 여러 단계로 나눠 순차 진행하는 마법사 화면.`,
+      screens: [
+        {
+          name: '단계별 입력',
+          purpose: '단계마다 필요한 정보 입력',
+          components: ['단계 표시기', '입력 필드', '이전/다음 버튼'],
+        },
+        { name: '최종 확인', purpose: '입력 내용 검토 후 제출', components: ['요약', '수정 링크', '제출 버튼'] },
+      ],
+      components: [
+        { name: '단계 표시기', description: '전체 단계 중 현재 위치', states: ['완료', '현재', '예정'] },
+        { name: '입력 필드', description: '단계별 항목', states: ['기본', '오류', '비활성'] },
+        { name: '이동 버튼', description: '이전/다음 단계 이동', states: ['활성', '비활성(필수 미입력)'] },
+      ],
+      userFlow: ['1단계 입력', '다음 단계 이동', '단계별 유효성 확인', '최종 확인', '제출'],
+      designNotes: ['단계 이탈 시 입력값 임시저장', '단계별 유효성 통과해야 다음 이동', '진행률 항상 표시'],
+      exceptions: ['필수 항목 미입력', '단계 중 세션 만료', '중복 신청'],
+    },
+    report: {
+      summary: `${domain} 데이터를 조건별로 조회·집계해 표로 출력·다운로드하는 리포트 화면.`,
+      screens: [
+        {
+          name: '리포트 조회',
+          purpose: '조건 설정 후 집계 결과 확인',
+          components: ['조회 조건', '집계 표', '합계 행', '내보내기 버튼'],
+        },
+      ],
+      components: [
+        { name: '조회 조건', description: '기간·지점·구분 등 필터', states: ['기본', '오류(기간 역전)'] },
+        { name: '집계 표', description: '행/열 집계와 합계', states: ['데이터 있음', '데이터 없음', '로딩'] },
+        { name: '내보내기', description: '엑셀/PDF/인쇄', states: ['기본', '생성중'] },
+      ],
+      userFlow: ['조회 조건 설정', '조회 실행', '집계 결과 확인', '엑셀/PDF 내보내기 또는 인쇄'],
+      designNotes: ['대량 데이터 페이지네이션/스트리밍', '합계·소계 규칙 명시', '출력 서식 사내 표준 준수'],
+      dataFields: [
+        { name: '조회 기간', type: '날짜범위', required: true, rule: 'YYYY-MM-DD ~ YYYY-MM-DD' },
+        { name: '지점 코드', type: '코드', required: false, rule: '3자리' },
+      ],
+      nonFunctional: ['대량 조회 시 3초 내 1페이지 응답', '조회 이력 감사로그'],
     },
   };
 
