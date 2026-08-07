@@ -8,6 +8,7 @@ import type {
   ScreenType,
 } from './types';
 import { renderSpecMarkdown } from '../spec';
+import { colorGuideLine, stylingGuideLine } from '../designTokens';
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 // HTML author: larger model produces markedly better UI. Text-only.
@@ -68,14 +69,22 @@ const HTML_STYLE_GUIDE = `너는 NH농협 사내 시스템 프론트엔드 개�
 ${NH_CONTEXT}
 
 디자인:
-- NH 브랜드 톤: 주색 #00873c(딥그린), 진한 변형 #006b30, 옅은 배경 #e6f3ec. 본문 #1f2a24, 보조 #6b7a72, 경계선 #dbe3de, 페이지 배경 #f4f6f5, 카드 #ffffff. 위험 #c0392b.
-- 실제 UI 품질: 적절한 여백(16~24px), 카드/패널 라운드(10~14px)+옅은 그림자, 타이포 위계(제목 18~22px 700, 본문 14px), 버튼·뱃지·탭·테이블·폼에 realistic 스타일.
+- ${colorGuideLine()}
+- ${stylingGuideLine()}
 - 회색 플레이스홀더·점선 와이어프레임 톤 금지. 그럴듯한 예시 값(한국식 이름·금액·날짜·계좌번호 등)을 채운다.
-- 상태는 색 뱃지로(승인=초록, 반려=빨강, 대기=회색). list/dashboard는 테이블·카드 그리드로 정보 밀도 있게. 폼은 라벨-입력 정렬 깔끔하게.
+- list/dashboard는 테이블·카드 그리드로 정보 밀도 있게. 폼은 라벨-입력 정렬 깔끔하게.
 - 요구/레퍼런스의 구체 요소(필드·컬럼·섹션·버튼)를 실제 반영. 일반 껍데기 금지.
 - 레이아웃 폭: 대시보드/목록은 최대 1100px 중앙 정렬, 단순 조회/폼은 640~800px.
 - 반드시 반응형: @media (max-width:768px)에서 다단→1단, 테이블은 overflow-x:auto 또는 카드형 전환, 여백·글자 조정. 터치 타깃 최소 44px.
 - 한국어 라벨. 아이콘은 이모지/유니코드/인라인 SVG.
+
+[접근성 — KWCAG/WCAG AA 준수. 사내 서비스 필수]
+- 시맨틱 마크업: header/nav/main/section/table(+thead/th scope)/form/label 을 실제 역할대로 사용. div 남발 금지.
+- 모든 폼 입력에 <label for>(또는 감싼 label) 연결. 아이콘 버튼엔 aria-label. 표에는 <caption> 또는 aria-label.
+- 이미지/일러스트 <img>엔 alt. 순수 장식은 alt="" 또는 aria-hidden. 정보 전달용 이모지 아이콘엔 텍스트 라벨 병기(색·모양만으로 의미 전달 금지).
+- 명도 대비: 본문 텍스트 대비 최소 4.5:1. 옅은 회색 위 옅은 회색 텍스트 금지.
+- 상태를 색으로만 나타내지 말고 텍스트/아이콘을 함께(예: 승인 ✓, 반려 ✕).
+- 논리적 heading 위계(h1→h2→h3), 폼 오류는 텍스트로 명시.
 
 [레퍼런스 이미지가 첨부된 경우] 레이아웃 구조·컴포넌트 배치·정보 위계·여백 감각을 참고하되, NH 브랜드 톤과 사내 맥락에 맞게 재해석한다. 그대로 베끼지 말 것.`;
 

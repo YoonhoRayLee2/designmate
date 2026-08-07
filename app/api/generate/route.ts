@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getEngine } from '@/lib/engine';
 import { EngineError } from '@/lib/engine/groqEngine';
+import { cacheKey, getCached, setCached } from '@/lib/engine/cache';
 import type { ChatMessage, DesignSpec } from '@/lib/engine/types';
 
 const MAX_IMAGES = 5;
@@ -72,8 +73,17 @@ export async function POST(req: Request) {
 
   const currentSpec = sanitizeSpec(body.currentSpec);
 
+  const request = { messages, currentSpec };
+  const key = cacheKey(request);
+  const cached = getCached(key);
+  if (cached) {
+    console.info('[api/generate] cache hit');
+    return NextResponse.json(cached);
+  }
+
   try {
-    const result = await getEngine().generate({ messages, currentSpec });
+    const result = await getEngine().generate(request);
+    setCached(key, result);
     return NextResponse.json(result);
   } catch (e) {
     if (e instanceof EngineError) {

@@ -198,3 +198,48 @@ NH농협 사내 화면 설계 도우미의 개선 작업을 시간순으로 누�
 - 두 번째 생성 → 드로우어에 프로젝트 2개, 헤더 "프로젝트 (2)" ✓
 - 항목 클릭 → 해당 대화(질문 카드 포함) 그대로 복원 ✓
 - `npm run lint` / `typecheck` / `format:check` / `build` 모두 통과 ✓
+
+---
+
+## 고도화 착수 계획 (2026-08-08 승인) — 축 B 제외, A·C·UX 전체
+
+**배경:** 부서장 보고서(`plans/cuddly-drifting-blossom.md`) 검토 후, 사용자가 **축 B(협업·공유·유통)를 제외한 나머지 전부**를 처리하도록 지시.
+관문(B1~B5: 인증·데이터주권·서버DB·가용성)은 타 부서 협의가 필요한 별도 트랙이라 이번 코드 착수 범위에서 제외.
+
+**착수 범위 (앱 코드로 순수 처리 가능한 것):**
+
+- **축 A — 산출물 품질·신뢰성**
+  - A1. 정의서 구조 심화 (데이터 필드 명세·권한 매트릭스·예외/오류·연계·비기능) — `DesignSpec` 스키마 확장 + 프롬프트 + `spec.ts` 렌더 + `coerceSpec` 방어
+  - A2. 추적성·버전 (요구사항 ID↔화면 ID, 작성자·일자, 버전 잠금) — 로컬 저장 계층 내에서 버전 스냅샷
+  - A3. 화면 유형 확장 (승인/결재 워크플로우 등) — `ScreenType` 확장, 규칙엔진·프롬프트·라벨 동기화
+  - A4. 재현성 — 서버 저장(B4/관문) 의존분은 제외, LLM seed/temperature 고정 + 규칙엔진 폴백 품질 개선 범위만
+- **축 C — 편집·상호작용·디자인 일관성**
+  - C1. 와이어프레임 직접 편집 — 난이도 높음, 단계적. LLM 재생성 외 최소 편집 수단부터
+  - C2. NH 디자인 시스템 토큰 — 프롬프트 색상 지시 → 공유 토큰 SSOT로 일관화
+  - C3. 온보딩 — 첫 사용자 가이드·프롬프트 팁·기능 안내
+  - C4. 생성 산출물 접근성 — LLM HTML의 KWCAG 준수 프롬프트 가이드
+- **UX 즉효**
+  - 응답 스트리밍(SSE) — 현 구조 최대 체감 개선
+  - 결과/이미지분석 캐싱
+
+**진행 방식:** 각 항목을 개별 Phase로 쪼개 리포트 → 커밋&푸시 컨펌 → 본 파일 기록. 관문(축 B·인증·서버DB)은 손대지 않음.
+
+> _(이 블록은 compact 전 현재 작업 상태 기록. 이하 각 Phase 완료 시 아래에 누적.)_
+
+---
+
+## Phase 6 — 캐싱 + DS 토큰 SSOT + 산출물 접근성 (2026-08-08)
+
+**배경:** 고도화 착수의 첫 묶음. 저위험·고체감 항목을 먼저 처리 — 동일요청 캐싱(UX 즉효), C2(디자인 토큰 단일화), C4(생성 HTML 접근성).
+
+### 변경
+
+- **C2. NH 디자인 토큰 SSOT** — `lib/designTokens.ts` 신설. 색/타이포/간격/상태색을 타입화해 한 곳에 정의하고, `colorGuideLine()`·`stylingGuideLine()`로 프롬프트 문자열을 조립. `groqEngine.ts`의 `HTML_STYLE_GUIDE`가 이 값을 참조하도록 변경 → 톤 변경 지점을 프롬프트 산문에서 토큰 모듈 한 곳으로 이동. (와이어프레임 저충실도 톤 SSOT는 기존대로 `templates/shared.ts` 분리 유지.)
+- **C4. 생성 산출물 접근성** — `HTML_STYLE_GUIDE`에 KWCAG/WCAG AA 가이드 블록 추가: 시맨틱 마크업(header/nav/main/table+scope/label), 폼 label 연결, 아이콘 aria-label, img alt, 명도 대비 4.5:1, 상태를 색+텍스트/아이콘 병기, heading 위계.
+- **캐싱(동일요청 메모리 LRU)** — `lib/engine/cache.ts` 신설. 요청 전체(messages+images+currentSpec)를 키로 완결 산출물(mode:'design')만 캐시(최대 50, LRU). `app/api/generate/route.ts`에서 엔진 호출 전 조회·후 저장 → 엔진 무관(그록/규칙 공통). 서버 메모리에만 존재, 콜드스타트 시 초기화. 되묻기(questions)는 캐시 안 함.
+
+### 검증
+
+- `npm run lint` / `typecheck` / `format:check` / `build` 모두 통과 ✓
+- **캐시 A/B(prod 서버, 동일 페이로드 2회)**: 1회차 25.1s(planner+html, 429 자동 복구 포함) → 2회차 **0.006s** `[api/generate] cache hit`, 응답 바디 **byte-identical** ✓ (~4000× 단축)
+- **생성 HTML 마커 검증**: NH그린 `#00873c`, `<label>`, `<table>`+`scope/caption`, `<main>/<header>/<nav>` 랜드마크, `aria-label` 모두 실제 출력에 존재 ✓
