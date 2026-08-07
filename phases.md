@@ -104,3 +104,18 @@ NH농협 사내 화면 설계 도우미의 개선 작업을 시간순으로 누�
 - 이미지 참조: qwen이 3-컬럼 레이아웃 분석 → designNotes에 반영, HTML 10367자 ✓
 - 로그: `planner ok(gpt-oss-120b)`, `vision ok(qwen)`, `html ok(gpt-oss-120b)`; 429 발생 시 재시도로 자동 복구(attempt=1 ok) ✓
 - `npm run build` 통과 ✓
+
+---
+
+## Bugfix — 와이어프레임 미리보기 클릭 무력화 (2026-08-08)
+
+**배경:** 생성된 화면(정적 목업) 안의 링크/버튼/폼을 누르면 미리보기 iframe이 실제로 페이지 이동·폼 제출을 시도해 화면이 깨졌다. (`sandbox="allow-same-origin"`은 스크립트/폼제출은 막지만 `<a href>` 내비게이션은 iframe 내부에서 발생.)
+
+### 변경 — `components/WireframePreview.tsx`
+- 미리보기용 HTML의 `<head>`에 `pointer-events:none` 스타일 스니펫 주입(`makeInert`) — a/button/input/form 등 인터랙션 요소 클릭을 무력화. 목업이므로 눌러도 그대로 유지.
+- **다운로드되는 HTML은 원본 그대로**(주입은 미리보기 전용) — 실제 산출물은 작동 상태 유지.
+
+### 검증 (헤드리스 크롬 A/B)
+- 수정 전: 링크 클릭 → `example.com/gone`으로 이동됨(버그 재현) ✓
+- 수정 후: 링크 클릭 → `about:blank` 그대로, 이동 없음 ✓
+- `npm run build` 통과 ✓
