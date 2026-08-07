@@ -82,3 +82,25 @@ NH농협 사내 화면 설계 도우미의 개선 작업을 시간순으로 누�
 - 실제 E2E 생성 → '결과' 탭 자동 전환, 정의서·표 잘림 없음, 헤더 버튼 줄바꿈 ✓
 - 데스크톱(1280px) 회귀: 기존 2분할 그대로 ✓
 - `npm run build` 통과 ✓
+
+---
+
+## Hotfix — Groq 비전 모델 교체 (2026-08-06)
+
+**배경:** `meta-llama/llama-4-scout-17b-16e-instruct`가 Groq에서 퇴출(404 model_not_found)되어 모든 요청 실패. 무료 모델은 예고 없이 사라짐.
+
+### 조사
+- Groq `/models` 조회 → 현재 비전 지원은 `qwen/qwen3.6-27b`가 유일. `gpt-oss-120b`는 텍스트 전용(이미지 넣으면 400).
+- qwen은 `<think>…</think>` 추론 블록을 뱉어 **json_object 모드에서 검증 실패**(planner 부적합).
+
+### 변경 — `lib/engine/groqEngine.ts`
+- **planner(JSON 판단+spec)를 `gpt-oss-120b`로 이전** — 텍스트 전용 메시지로 호출(이미지는 제거). 신뢰성 있는 JSON 확보. 이미지 첨부 시엔 "이미지는 별도 분석되니 design으로 진행" 힌트 추가.
+- **`VISION_MODEL` = `qwen/qwen3.6-27b`** — `describeReferences`(이미지→텍스트 분석)에만 사용.
+- `stripThink()` 추가 — qwen의 `<think>` 블록 제거(describe/planner 파싱 방어). vision max_tokens 1600, planner 2000으로 상향.
+- `.env.local.example`의 `GROQ_VISION_MODEL` 기본값 갱신.
+
+### 검증 (dev E2E)
+- 텍스트 생성: design + HTML 6664자 ✓
+- 이미지 참조: qwen이 3-컬럼 레이아웃 분석 → designNotes에 반영, HTML 10367자 ✓
+- 로그: `planner ok(gpt-oss-120b)`, `vision ok(qwen)`, `html ok(gpt-oss-120b)`; 429 발생 시 재시도로 자동 복구(attempt=1 ok) ✓
+- `npm run build` 통과 ✓

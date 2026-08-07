@@ -12,8 +12,10 @@ import { renderSpecMarkdown } from '../spec';
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 // HTML author: larger model produces markedly better UI. Text-only.
 const HTML_MODEL = process.env.GROQ_HTML_MODEL || 'openai/gpt-oss-120b';
-// Planner + vision: smaller multimodal model handles JSON decisions and image analysis.
-const VISION_MODEL = process.env.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct';
+// Vision: analyzes reference images only (planner/HTML use the text model, which
+// gives reliable JSON — qwen's <think> blocks break json_object mode).
+// llama-4-scout was retired from Groq; qwen3.6-27b is the current vision model.
+const VISION_MODEL = process.env.GROQ_VISION_MODEL || 'qwen/qwen3.6-27b';
 // Free-tier TPM cap is 8000 (prompt + max_tokens counted together);
 // leave headroom for the system prompt, spec, and conversation history.
 const MAX_TOKENS = 5500;
@@ -128,9 +130,14 @@ function toApiMessage(m: ChatMessage) {
   return { role: m.role, content: m.content };
 }
 
+/** Remove a leading <think>…</think> reasoning block (qwen emits these). */
+function stripThink(s: string): string {
+  return s.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+}
+
 /** Strip an accidental ```html ... ``` code fence the model sometimes adds. */
 function stripFence(s: string): string {
-  const t = s.trim();
+  const t = stripThink(s).trim();
   const fence = t.match(/^```(?:html)?\s*([\s\S]*?)\s*```$/i);
   return (fence ? fence[1] : t).trim();
 }
@@ -232,7 +239,7 @@ async function describeReferences(apiKey: string, message: ChatMessage): Promise
     {
       model: VISION_MODEL,
       temperature: 0.3,
-      max_tokens: 900,
+      max_tokens: 1600, // headroom for qwen's <think> block
       messages: [
         {
           role: 'system',
@@ -244,7 +251,7 @@ async function describeReferences(apiKey: string, message: ChatMessage): Promise
     },
     'vision',
   );
-  return raw.trim();
+  return stripThink(raw);
 }
 
 export function createGroqEngine(apiKey: string): DesignEngine {
@@ -256,26 +263,34 @@ export function createGroqEngine(apiKey: string): DesignEngine {
       // History as plain text; images are handled separately via the vision model.
       const textMessages = req.messages.map((m) => ({ role: m.role, content: m.content }));
 
-      // --- Call A: planner (JSON mode, vision model so it can see any images) ---
+      // --- Call A: planner (JSON mode). Uses the text model — reliable JSON —
+      // on text-only messages. Image understanding is handled separately below
+      // via the vision model, whose description feeds the HTML author. ---
       const plannerSystem = req.currentSpec
         ? `${PLANNER_PROMPT}\n\n[CURRENT_SPEC — 현재 화면 설계. 최신 지시로 이것을 수정하라]\n${JSON.stringify(req.currentSpec)}`
         : PLANNER_PROMPT;
+      const plannerHint = hasImages
+        ? '\n\n[참고: 사용자가 레퍼런스 이미지를 첨부했다. 이미지는 별도 분석되어 반영되니, 텍스트만으로 판단해 되도록 mode="design"으로 진행하라.]'
+        : '';
 
       const plannerRaw = await callGroq(
         apiKey,
         {
-          model: VISION_MODEL,
+          model: HTML_MODEL,
           temperature: 0.4,
-          max_tokens: 1500,
+          max_tokens: 2000,
           response_format: { type: 'json_object' },
-          messages: [{ role: 'system', content: plannerSystem }, ...req.messages.map(toApiMessage)],
+          messages: [{ role: 'system', content: plannerSystem + plannerHint }, ...textMessages],
         },
         'planner',
       );
 
       let plan: PlannerPayload;
       try {
-        plan = JSON.parse(plannerRaw);
+        // Strip any <think> wrapper, then parse; fall back to the first {...} block.
+        const cleaned = stripThink(plannerRaw);
+        const jsonText = cleaned.startsWith('{') ? cleaned : cleaned.match(/\{[\s\S]*\}/)?.[0] ?? cleaned;
+        plan = JSON.parse(jsonText);
       } catch {
         throw new EngineError('설계 분석에 실패했습니다. 다시 시도해 주세요.', `planner non-JSON: ${plannerRaw.slice(0, 200)}`);
       }
