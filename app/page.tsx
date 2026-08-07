@@ -600,35 +600,57 @@ function QuestionCard({
   disabled: boolean;
   onSubmit: (answers: { question: string; answer: string }[]) => void;
 }) {
-  const [picked, setPicked] = useState<Record<number, string>>({});
-  const allAnswered = questions.every((_, i) => picked[i]);
+  // Each answer is a list of picked options: single-choice keeps ≤1, multi keeps many.
+  const [picked, setPicked] = useState<Record<number, string[]>>({});
+  const allAnswered = questions.every((_, i) => (picked[i]?.length ?? 0) > 0);
+
+  function toggle(qi: number, opt: string, multi: boolean) {
+    setPicked((p) => {
+      const current = p[qi] ?? [];
+      if (multi) {
+        const next = current.includes(opt) ? current.filter((o) => o !== opt) : [...current, opt];
+        return { ...p, [qi]: next };
+      }
+      // Single choice: selecting replaces; tapping the selected one clears it.
+      return { ...p, [qi]: current[0] === opt ? [] : [opt] };
+    });
+  }
 
   return (
     <div className="qcard">
       <div className="qcard-head">더 정확한 화면을 위해 몇 가지만 알려주세요</div>
       {questions.map((q, qi) => (
         <div key={qi} className="qblock" role="group" aria-label={q.question}>
-          <div className="qtext">{q.question}</div>
+          <div className="qtext">
+            {q.question}
+            {q.multiSelect && <span className="qhint">복수 선택 가능</span>}
+          </div>
           <div className="qopts">
-            {q.options.map((opt) => (
-              <button
-                key={opt}
-                type="button"
-                className={`qopt ${picked[qi] === opt ? 'sel' : ''}`}
-                aria-pressed={picked[qi] === opt}
-                disabled={disabled}
-                onClick={() => setPicked((p) => ({ ...p, [qi]: opt }))}
-              >
-                {opt}
-              </button>
-            ))}
+            {q.options.map((opt) => {
+              const on = (picked[qi] ?? []).includes(opt);
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  className={`qopt ${on ? 'sel' : ''} ${q.multiSelect ? 'multi' : ''}`}
+                  aria-pressed={on}
+                  disabled={disabled}
+                  onClick={() => toggle(qi, opt, !!q.multiSelect)}
+                >
+                  {q.multiSelect && <span className="qcheck" aria-hidden="true" />}
+                  {opt}
+                </button>
+              );
+            })}
           </div>
         </div>
       ))}
       <button
         className="btn qsubmit"
         disabled={disabled || !allAnswered}
-        onClick={() => onSubmit(questions.map((q, i) => ({ question: q.question, answer: picked[i] })))}
+        onClick={() =>
+          onSubmit(questions.map((q, i) => ({ question: q.question, answer: (picked[i] ?? []).join(', ') })))
+        }
       >
         이 조건으로 만들기
       </button>

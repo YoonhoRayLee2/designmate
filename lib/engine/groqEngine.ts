@@ -40,11 +40,12 @@ ${NH_CONTEXT}
 - 되물을 때는 mode="questions", 2~4개 객관식 질문(각 보기 2~4개).
 - 이미 명확하거나 합리적 기본값이 있으면 묻지 말고 mode="design".
 - 사용자가 이전 턴에 이미 답한 것은 다시 묻지 않는다.
+- 각 질문에 multiSelect(불리언)를 지정한다. 여러 개를 동시에 고르는 게 자연스러운 질문(예: "포함할 항목을 모두 고르세요", "필요한 기능")은 true, 하나만 골라야 하는 질문(예: 화면 유형·사용 주체 택1)은 false.
 
 반드시 아래 JSON 하나만 출력한다. 코드펜스·설명 금지.
 
 (A) 되물을 때:
-{ "mode":"questions", "questions":[ { "question":"...", "options":["...","..."] } ] }
+{ "mode":"questions", "questions":[ { "question":"...", "options":["...","..."], "multiSelect":false } ] }
 
 (B) 설계할 때 (spec만, HTML은 넣지 않는다):
 {
@@ -118,7 +119,7 @@ function coerceQuestions(raw: unknown): ClarifyingQuestion[] {
         ? q.options.filter((o: unknown): o is string => typeof o === 'string')
         : [];
       if (options.length < 2) return null;
-      return { question: q.question, options: options.slice(0, 4) };
+      return { question: q.question, options: options.slice(0, 4), multiSelect: q.multiSelect === true };
     })
     .filter((q): q is ClarifyingQuestion => q !== null)
     .slice(0, 4);

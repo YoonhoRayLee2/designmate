@@ -265,3 +265,22 @@ NH농협 사내 화면 설계 도우미의 개선 작업을 시간순으로 누�
 - `npm run typecheck` / `lint` / `format:check` / `build` 모두 통과 ✓ (`Record<ScreenType,...>`가 8종 전부 커버 강제)
 - **규칙 엔진 E2E**(키 없이 폴백): "여신 승인 결재"→`approval`(권한매트릭스·예외 섹션 O, 승인 버튼 O), "월별 여신 실적 집계 리포트"→`report`(데이터 필드 명세 O, 내보내기 O), "대출 신청 다단계 마법사"→`wizard`(진행 단계 O) ✓
 - **Groq E2E**(실키): "조합원 대출 승인/반려 결재 화면" → `screenType=approval`, **A1 5개 섹션 전부 렌더**, dataFields 5행·permissions 2행 LLM이 채움, NH그린 O, 429 자동 복구 ✓
+
+---
+
+## Phase 7.1 — 되묻기 질문 다중 선택 (2026-08-08)
+
+**배경:** 되묻기(clarifying questions) 카드가 질문마다 단일 선택만 가능했다. "포함할 항목을 모두 고르세요" 같은 질문은 복수 선택이 자연스러워, 질문별로 단일/복수를 자동 판단하도록 개선.
+
+### 변경 — `types.ts`, `groqEngine.ts`, `app/page.tsx`, `globals.css`
+
+- **`ClarifyingQuestion`에 `multiSelect?: boolean`** 추가(선택, 기본 단일).
+- **planner 프롬프트**: 각 질문에 `multiSelect` 지정 안내(여러 개 고르는 게 자연스러운 질문=true, 택1=false). 예시 JSON에 필드 포함. `coerceQuestions`가 `multiSelect === true`만 신뢰(방어).
+- **`QuestionCard`**: 선택 상태를 `Record<number,string[]>`로 변경(단일=길이≤1, 복수=여럿). 단일은 라디오식(재클릭 시 해제), 복수는 토글식. 답변 요약은 `A, B` 형태로 합산해 전송.
+- **CSS**: 복수 질문에 "복수 선택 가능" 뱃지, 옵션에 체크박스(선택 시 흰 박스+그린 ✓ L자 보더). 단일은 기존 pill 유지.
+
+### 검증
+
+- `typecheck` / `lint` / `format:check` / `build` 모두 통과 ✓
+- **API E2E**(실키): 애매한 프롬프트 → Q1~Q3(사용자/목적/화면유형) `multiSelect=false`, Q4("컴포넌트를 모두 선택") `multiSelect=true`로 planner가 정확히 판단 ✓
+- **UI 렌더**(헤드리스 크롬): 단일 질문 pill(택1) vs 복수 질문 체크박스+뱃지, 선택 시 그린 ✓ 시각 구분 스크린샷 확인 ✓

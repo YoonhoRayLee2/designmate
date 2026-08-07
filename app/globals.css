@@ -681,6 +681,48 @@ button {
   cursor: default;
   opacity: 0.7;
 }
+.qhint {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--nh-green-dark);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 7px;
+  vertical-align: middle;
+}
+/* Multi-select options show a checkbox box that fills when selected. */
+.qopt.multi {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.qcheck {
+  position: relative;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  flex: 0 0 auto;
+}
+/* Selected multi option: white box with a green tick (drawn as an L-shaped border). */
+.qopt.multi.sel .qcheck {
+  background: #fff;
+  border-color: #fff;
+}
+.qopt.multi.sel .qcheck::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--nh-green);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
 .qsubmit {
   width: 100%;
   margin-top: 4px;

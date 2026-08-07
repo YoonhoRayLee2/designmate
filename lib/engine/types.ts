@@ -69,6 +69,8 @@ export interface GenerateResult {
 export interface ClarifyingQuestion {
   question: string;
   options: string[];
+  /** When true, the user may pick multiple options (default: single choice). */
+  multiSelect?: boolean;
 }
 
 /** Engine either produces a design, or asks clarifying questions first. */
