@@ -328,7 +328,7 @@ export default function Home() {
             })}
 
             {loading && (
-              <div className="bubble bot loading">
+              <div className="bubble bot loading" role="status" aria-live="polite">
                 생각 중…
                 <button type="button" className="inline-link" onClick={cancel}>
                   취소
@@ -383,6 +383,7 @@ export default function Home() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}
+              aria-label="요구사항 입력"
               placeholder={
                 started
                   ? '수정/추가 요청을 입력하세요 (⌘/Ctrl + Enter)'
@@ -462,7 +463,7 @@ function QuestionCard({
     <div className="qcard">
       <div className="qcard-head">더 정확한 화면을 위해 몇 가지만 알려주세요</div>
       {questions.map((q, qi) => (
-        <div key={qi} className="qblock">
+        <div key={qi} className="qblock" role="group" aria-label={q.question}>
           <div className="qtext">{q.question}</div>
           <div className="qopts">
             {q.options.map((opt) => (
@@ -470,6 +471,7 @@ function QuestionCard({
                 key={opt}
                 type="button"
                 className={`qopt ${picked[qi] === opt ? 'sel' : ''}`}
+                aria-pressed={picked[qi] === opt}
                 disabled={disabled}
                 onClick={() => setPicked((p) => ({ ...p, [qi]: opt }))}
               >

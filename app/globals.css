@@ -38,6 +38,13 @@ button {
   cursor: pointer;
 }
 
+/* Visible keyboard focus ring across the app (mouse clicks stay clean). */
+:focus-visible {
+  outline: 2px solid var(--nh-green);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .app {
   display: flex;
   flex-direction: column;

@@ -156,3 +156,23 @@ NH농협 사내 화면 설계 도우미의 개선 작업을 시간순으로 누�
 - `npm run format:check` → All matched files use Prettier code style ✓
 - `npm run build` 통과 ✓
 - 참고: `npm audit`의 잔여 항목은 next@16(major) 필요분(수용) + dev 전용 eslint 의존성이라 런타임 영향 없음.
+
+---
+
+## Phase 4 — 접근성 (2026-08-08)
+
+**배경:** 폼 요소에 라벨이 없고(placeholder만), 일부 토글/상태에 스크린리더 힌트가 없으며, 키보드 포커스 링이 보장되지 않았다.
+
+### 변경 — `app/page.tsx`, `components/WireframePreview.tsx`, `app/globals.css`
+
+- **textarea**에 `aria-label="요구사항 입력"` 추가.
+- **로딩 표시**에 `role="status" aria-live="polite"` — 생성 진행을 스크린리더가 안내.
+- **와이어프레임 크기 토글**: `role="group"` + 각 버튼 `aria-pressed`, iframe `title`에 현재 뷰(데스크톱/모바일) 명시.
+- **질문 카드**: 각 질문 `role="group" aria-label`, 옵션 버튼 `aria-pressed`로 선택 상태 노출.
+- **전역 `:focus-visible`** 포커스 링(NH 그린) 추가 — 키보드 탐색 시 위치가 항상 보임(마우스 클릭은 깨끗).
+- (기존) 에러 `role="alert"`, 첨부/제거 버튼 `aria-label`, 모바일 탭 `role="tablist"`는 유지.
+
+### 검증
+
+- 헤드리스 크롬에서 Tab 이동 → 예시 칩에 NH 그린 포커스 링 렌더 확인(스크린샷) ✓
+- `npm run lint` / `typecheck` / `format:check` / `build` 모두 통과 ✓
