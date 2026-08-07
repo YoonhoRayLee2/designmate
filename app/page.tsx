@@ -5,8 +5,10 @@ import SpecPanel from '@/components/SpecPanel';
 import WireframePreview from '@/components/WireframePreview';
 import type { ChatMessage, ClarifyingQuestion, EngineOutput, GenerateResult } from '@/lib/engine/types';
 
-const STORAGE_KEY = 'designmate.session.v2';
+const STORAGE_KEY = 'designmate.projects.v1';
+const LEGACY_KEY = 'designmate.session.v2';
 const MAX_STORED_TURNS = 40;
+const MAX_PROJECTS = 30;
 
 const EXAMPLES = [
   '조합원 대출 신청 화면',
@@ -31,19 +33,47 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-interface Session {
+interface Project {
+  id: string;
+  title: string;
   turns: Turn[];
+  updatedAt: number;
 }
 
-function loadSession(): Session {
-  if (typeof window === 'undefined') return { turns: [] };
+interface Store {
+  projects: Project[];
+  activeId: string | null;
+}
+
+// Simple id, collision-safe enough for a single browser's local storage.
+function newId(): string {
+  return `p_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`;
+}
+
+/** Derive a project title from its first generated design, else a placeholder. */
+function deriveProjectTitle(turns: Turn[]): string {
+  const firstDesign = turns.find((t): t is Extract<Turn, { kind: 'design' }> => t.kind === 'design');
+  return firstDesign?.result.spec.title?.trim() || '새 프로젝트';
+}
+
+function loadStore(): Store {
+  if (typeof window === 'undefined') return { projects: [], activeId: null };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as Session;
+    if (raw) return JSON.parse(raw) as Store;
+    // Migrate a legacy single session into the first project.
+    const legacy = localStorage.getItem(LEGACY_KEY);
+    if (legacy) {
+      const { turns } = JSON.parse(legacy) as { turns: Turn[] };
+      if (turns?.length) {
+        const p: Project = { id: newId(), title: deriveProjectTitle(turns), turns, updatedAt: Date.now() };
+        return { projects: [p], activeId: p.id };
+      }
+    }
   } catch {
     /* ignore corrupt storage */
   }
-  return { turns: [] };
+  return { projects: [], activeId: null };
 }
 
 /** Drop base64 images before persisting — they blow past the localStorage quota. */
@@ -56,15 +86,23 @@ function turnForStorage(t: Turn): Turn {
   return t;
 }
 
-/** Persist turns, trimming oldest first if the quota is exceeded. */
-function persist(turns: Turn[]) {
-  let slice = turns.slice(-MAX_STORED_TURNS).map(turnForStorage);
-  for (let attempt = 0; attempt < 5; attempt++) {
+/** Persist the whole store, trimming turns/projects if the quota is exceeded. */
+function persistStore(store: Store) {
+  let projects = store.projects.slice(0, MAX_PROJECTS).map((p) => ({
+    ...p,
+    turns: p.turns.slice(-MAX_STORED_TURNS).map(turnForStorage),
+  }));
+  for (let attempt = 0; attempt < 6; attempt++) {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ turns: slice }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ projects, activeId: store.activeId }));
       return;
     } catch {
-      if (slice.length <= 2) {
+      // Shed the oldest project first; if only the active one remains, trim its turns.
+      if (projects.length > 1) {
+        projects = projects.slice(0, -1);
+      } else if (projects[0] && projects[0].turns.length > 2) {
+        projects = [{ ...projects[0], turns: projects[0].turns.slice(Math.ceil(projects[0].turns.length / 2)) }];
+      } else {
         try {
           localStorage.removeItem(STORAGE_KEY);
         } catch {
@@ -72,7 +110,6 @@ function persist(turns: Turn[]) {
         }
         return;
       }
-      slice = slice.slice(Math.ceil(slice.length / 2)); // drop older half and retry
     }
   }
 }
@@ -97,17 +134,50 @@ export default function Home() {
   const [copied, setCopied] = useState('');
   // Mobile-only: which panel is shown (desktop always shows both side by side).
   const [mobileView, setMobileView] = useState<'chat' | 'result'>('chat');
+  // Multi-project history.
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const hydrated = useRef(false);
 
+  // Load projects on mount; open the most recent (or start empty).
   useEffect(() => {
-    setTurns(loadSession().turns);
+    const store = loadStore();
+    setProjects(store.projects);
+    const active = store.projects.find((p) => p.id === store.activeId) ?? store.projects[0] ?? null;
+    if (active) {
+      setActiveId(active.id);
+      setTurns(active.turns);
+    }
+    hydrated.current = true;
   }, []);
 
+  // Persist whenever turns change: fold current turns into the active project.
   useEffect(() => {
-    persist(turns);
+    if (!hydrated.current) return;
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' });
+
+    setProjects((prev) => {
+      let id = activeId;
+      let next: Project[];
+      if (!id) {
+        // No active project yet: create one once the user has any turns.
+        if (!turns.length) return prev;
+        id = newId();
+        next = [{ id, title: deriveProjectTitle(turns), turns, updatedAt: Date.now() }, ...prev];
+        setActiveId(id);
+      } else {
+        next = prev.map((p) =>
+          p.id === id ? { ...p, turns, title: deriveProjectTitle(turns), updatedAt: Date.now() } : p,
+        );
+      }
+      persistStore({ projects: next, activeId: id });
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turns]);
 
   const latestResult = [...turns]
@@ -218,12 +288,45 @@ export default function Home() {
       sendText(input);
     }
   }
-  function newSession() {
-    if (turns.length && !confirm('현재 대화를 지우고 새로 시작할까요?')) return;
+  // Start a fresh project (current one stays saved in the drawer).
+  function newProject() {
+    setActiveId(null);
     setTurns([]);
     setError('');
+    setLastFailed(null);
     setInput('');
+    setPendingImages([]);
+    setMobileView('chat');
+    setDrawerOpen(false);
   }
+
+  function switchProject(id: string) {
+    const p = projects.find((x) => x.id === id);
+    if (!p) return;
+    setActiveId(id);
+    setTurns(p.turns);
+    setError('');
+    setLastFailed(null);
+    setInput('');
+    setPendingImages([]);
+    setMobileView(p.turns.some((t) => t.kind === 'design') ? 'result' : 'chat');
+    setDrawerOpen(false);
+  }
+
+  function deleteProject(id: string) {
+    if (!confirm('이 프로젝트를 삭제할까요?')) return;
+    setProjects((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      const nextActive = id === activeId ? (next[0]?.id ?? null) : activeId;
+      persistStore({ projects: next, activeId: nextActive });
+      if (id === activeId) {
+        setActiveId(nextActive);
+        setTurns(next[0]?.turns ?? []);
+      }
+      return next;
+    });
+  }
+
   function copy(text: string, label: string) {
     navigator.clipboard?.writeText(text);
     setCopied(label);
@@ -236,18 +339,59 @@ export default function Home() {
     <div className="app">
       <header className="app-header">
         <div className="brand">
-          <span className="brand-mark">NH</span>
+          <button
+            className="brand-mark brand-mark-btn"
+            onClick={() => setDrawerOpen(true)}
+            aria-label="프로젝트 목록 열기"
+            title="프로젝트 목록"
+          >
+            NH
+          </button>
           <div>
             <h1>DesignMate</h1>
             <p>NH농협 사내 화면 설계 도우미 · 요구사항을 대화로 다듬어 정의서와 와이어프레임을 만듭니다.</p>
           </div>
         </div>
-        {started && (
-          <button className="btn-ghost" onClick={newSession}>
-            새 대화
+        <div className="head-actions">
+          <button className="btn-ghost" onClick={() => setDrawerOpen(true)}>
+            ☰ 프로젝트{projects.length ? ` (${projects.length})` : ''}
           </button>
-        )}
+          <button className="btn-ghost" onClick={newProject}>
+            + 새 대화
+          </button>
+        </div>
       </header>
+
+      {drawerOpen && (
+        <>
+          <div className="drawer-backdrop" onClick={() => setDrawerOpen(false)} />
+          <aside className="drawer" role="dialog" aria-label="프로젝트 목록">
+            <div className="drawer-head">
+              <h2>프로젝트</h2>
+              <button className="btn-ghost" onClick={() => setDrawerOpen(false)} aria-label="닫기">
+                ✕
+              </button>
+            </div>
+            <button className="drawer-new" onClick={newProject}>
+              + 새 대화 시작
+            </button>
+            <div className="drawer-list">
+              {projects.length === 0 && <div className="drawer-empty">아직 저장된 프로젝트가 없어요.</div>}
+              {projects.map((p) => (
+                <div key={p.id} className={`drawer-item ${p.id === activeId ? 'active' : ''}`}>
+                  <button className="drawer-item-main" onClick={() => switchProject(p.id)}>
+                    <span className="drawer-item-title">{p.title}</span>
+                    <span className="drawer-item-time">{new Date(p.updatedAt).toLocaleString('ko-KR')}</span>
+                  </button>
+                  <button className="drawer-item-del" onClick={() => deleteProject(p.id)} aria-label="삭제">
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          </aside>
+        </>
+      )}
 
       {/* Mobile-only segmented toggle: choose which panel fills the screen. */}
       <div className="mobile-tabs" role="tablist" aria-label="화면 전환">
