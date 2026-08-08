@@ -1,14 +1,32 @@
 # DesignMate
 
-자연어 요구사항을 입력하면 **UI/UX 정의서**와 **와이어프레임(HTML/CSS 목업)** 을 생성해 주는 웹앱.
+NH농협 사내 화면 설계 도우미. 자연어 요구사항을 대화로 다듬어 **UI/UX 정의서**와 **와이어프레임(HTML/CSS 목업)** 을 생성한다.
 
-- 좌측: 화면 구성 · 컴포넌트 · 사용자 플로우 · 디자인 노트가 담긴 정의서
-- 우측: 실제 렌더링되는 저충실도 와이어프레임 (iframe)
+- 좌측: 화면 구성 · 컴포넌트 · 사용자 플로우 · 디자인 노트에 더해 **데이터 필드 명세 · 권한 매트릭스 · 예외/오류 · 연계 시스템 · 비기능 요구**까지 담긴 실무형 정의서
+- 우측: 실제 렌더링되는 와이어프레임 (iframe, 클릭 무력화된 정적 목업)
 
-엔진은 두 가지:
+주요 기능: 대화형 반복 개선(되묻기·다중 선택 포함), 레퍼런스 이미지 첨부, 8종 화면 유형(list/detail/form/dashboard/auth/approval/wizard/report), 다중 프로젝트 히스토리, 버전 되돌리기, **응답 스트리밍(생성 과정 실시간 표시)**, MD/HTML 내보내기.
 
-- **Groq (LLM)** — `GROQ_API_KEY`가 있으면 Groq(Llama 3.3 70B)가 프롬프트를 이해해 정의서+와이어프레임을 직접 생성. 무료 티어: https://console.groq.com
-- **규칙 기반 폴백** — 키가 없으면 키워드로 화면 유형을 판별해 템플릿 목업 생성.
+## 기술 스택
+
+| 구분                | 내용                                                                                   |
+| ------------------- | -------------------------------------------------------------------------------------- |
+| 프레임워크          | **Next.js 14 (App Router) + TypeScript**, React 18                                     |
+| 의존성              | `next` / `react` / `react-dom`만 — UI·상태관리·마크다운 라이브러리 없음(의존성 최소화) |
+| LLM                 | **Groq** (OpenAI 호환 API). 무료 티어: https://console.groq.com                        |
+| ├ 플래너·HTML 작성  | `openai/gpt-oss-120b` (텍스트 전용, JSON 모드로 판단+spec / 텍스트로 HTML)             |
+| └ 비전(이미지 분석) | `qwen/qwen3.6-27b` (첨부 레퍼런스 이미지를 텍스트로 서술)                              |
+| 스트리밍            | 서버 SSE(`text/event-stream`) → 클라이언트 `ReadableStream` 파싱                       |
+| 저장                | 브라우저 `localStorage` (다중 프로젝트, 서버 DB 없음)                                  |
+| 스타일              | 순수 CSS(`globals.css`, NH 딥그린 #00873c 토큰). 와이어프레임은 iframe `srcDoc`로 격리 |
+| 품질 도구           | ESLint(next/core-web-vitals) · Prettier · `tsc --noEmit`                               |
+| 런타임              | Node.js ≥ 18.18                                                                        |
+| 호스팅              | Render (Web Service)                                                                   |
+
+엔진은 두 가지이며 `lib/engine/index.ts`의 `getEngine()` 한 곳에서 선택된다:
+
+- **Groq (LLM)** — `GROQ_API_KEY`가 있으면 프롬프트를 이해해 정의서+와이어프레임을 직접 생성.
+- **규칙 기반 폴백** — 키가 없으면 키워드로 화면 유형·NH 도메인을 판별해 템플릿 목업 생성.
 
 ## 로컬 실행
 
@@ -51,10 +69,17 @@ lib/
 components/                # SpecPanel, WireframePreview (입력은 page.tsx 내장)
 ```
 
-## Render 배포 시 환경변수
+## 환경변수
 
-Render 대시보드에 `GROQ_API_KEY`를 추가하세요. (선택: `GROQ_MODEL`)
-키가 없으면 자동으로 규칙 엔진으로 동작합니다.
+`.env.local` (로컬) 또는 Render 대시보드에 설정한다. 키가 없으면 자동으로 규칙 엔진으로 폴백한다.
+
+| 변수                | 필수 | 기본값                | 설명                  |
+| ------------------- | ---- | --------------------- | --------------------- |
+| `GROQ_API_KEY`      | 권장 | —                     | 없으면 규칙 엔진 폴백 |
+| `GROQ_HTML_MODEL`   | 선택 | `openai/gpt-oss-120b` | 플래너·HTML 작성 모델 |
+| `GROQ_VISION_MODEL` | 선택 | `qwen/qwen3.6-27b`    | 이미지 분석 모델      |
+
+> ⚠️ `.env.local`은 gitignore 대상 — API 키를 커밋하지 말 것.
 
 ## 다른 LLM으로 교체하기
 

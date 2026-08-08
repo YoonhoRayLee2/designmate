@@ -23,6 +23,10 @@ const VISION_MODEL = process.env.GROQ_VISION_MODEL || 'qwen/qwen3.6-27b';
 // Free-tier TPM cap is 8000 (prompt + max_tokens counted together);
 // leave headroom for the system prompt, spec, and conversation history.
 const MAX_TOKENS = 5500;
+// A4 (재현성): a fixed seed makes the same input yield a similar result across
+// calls. Best-effort — the provider may not honor it strictly, but it reduces
+// run-to-run drift for the same prompt/spec.
+const SEED = 42;
 
 const SCREEN_TYPES: ScreenType[] = ['list', 'detail', 'form', 'dashboard', 'auth', 'approval', 'wizard', 'report'];
 
@@ -425,6 +429,7 @@ function htmlAuthorBody(
   return {
     model: HTML_MODEL,
     temperature: 0.5,
+    seed: SEED,
     max_tokens: MAX_TOKENS,
     messages: [
       { role: 'system', content: htmlSystem },
@@ -470,6 +475,7 @@ async function planDesign(apiKey: string, req: GenerateRequest): Promise<PlanRes
     {
       model: HTML_MODEL,
       temperature: 0.4,
+      seed: SEED,
       max_tokens: 2000,
       response_format: { type: 'json_object' },
       messages: [{ role: 'system', content: plannerSystem + plannerHint }, ...textMessages],

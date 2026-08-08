@@ -21,12 +21,14 @@ const TYPE_RULES: { type: ScreenType; keywords: string[] }[] = [
   { type: 'list', keywords: ['목록', '리스트', '피드', '상품들', '게시글', 'list', 'feed', '검색결과'] },
 ];
 
+// NH농협 사내 도메인 기준. (규칙 엔진은 오프라인 폴백 — Groq 키가 있으면 planner가 도메인을 정한다.)
 const DOMAIN_RULES: { domain: string; keywords: string[] }[] = [
-  { domain: '쇼핑/커머스', keywords: ['쇼핑', '커머스', '상품', '스토어', '마켓', 'shop', 'commerce', '장바구니'] },
-  { domain: '소셜/커뮤니티', keywords: ['소셜', '커뮤니티', 'sns', '게시글', '피드', '팔로우'] },
-  { domain: '예약/서비스', keywords: ['예약', '병원', '식당', '숙소', '부킹', 'booking'] },
-  { domain: '금융/핀테크', keywords: ['금융', '송금', '결제', '자산', '핀테크', 'bank'] },
-  { domain: '콘텐츠/미디어', keywords: ['영상', '뉴스', '아티클', '음악', '콘텐츠', 'media'] },
+  { domain: '여신', keywords: ['여신', '대출', '심사', '담보', '신용', '한도', '연체'] },
+  { domain: '수신', keywords: ['수신', '예금', '적금', '통장', '이체', '입출금', '잔액'] },
+  { domain: '조합원관리', keywords: ['조합원', '고객', '회원', '가입', '상담', '민원'] },
+  { domain: '승인/결재', keywords: ['승인', '결재', '반려', '전결', '기안', '결재선'] },
+  { domain: '영업점업무', keywords: ['영업점', '지점', '창구', '실적', '마감', '시재'] },
+  { domain: '경영/관리', keywords: ['본부', '경영', '관리', '통계', '지표', '현황', '리포트'] },
 ];
 
 function pick<T extends { keywords: string[] }>(rules: T[], text: string): T | undefined {
