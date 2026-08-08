@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getEngine } from '@/lib/engine';
 import { EngineError } from '@/lib/engine/groqEngine';
 import { cacheKey, getCached, setCached } from '@/lib/engine/cache';
-import type { ChatMessage, DesignSpec } from '@/lib/engine/types';
+import type { ChatMessage, DesignSpec, StreamEvent } from '@/lib/engine/types';
 
 const MAX_IMAGES = 5;
 // Groq base64 image limit is ~4MB; base64 inflates ~33%, so cap the data-URL length.
@@ -76,13 +76,46 @@ export async function POST(req: Request) {
   const request = { messages, currentSpec };
   const key = cacheKey(request);
   const cached = getCached(key);
+  const wantsStream = new URL(req.url).searchParams.get('stream') === '1';
+  const engine = getEngine();
+
+  // Cache hits skip the LLM entirely. For streaming clients, replay the cached
+  // result as a single done event so the client's handling stays uniform.
   if (cached) {
     console.info('[api/generate] cache hit');
+    if (wantsStream) {
+      const event =
+        cached.mode === 'questions'
+          ? { type: 'questions', questions: cached.questions }
+          : {
+              type: 'done',
+              result: { spec: cached.spec, wireframeHtml: cached.wireframeHtml, specMarkdown: cached.specMarkdown },
+            };
+      return sseResponse(
+        (async function* () {
+          yield event as StreamEvent;
+        })(),
+      );
+    }
     return NextResponse.json(cached);
   }
 
+  // Streaming path (only when the engine supports it).
+  if (wantsStream && engine.generateStream) {
+    const stream = engine.generateStream(request);
+    return sseResponse(
+      (async function* () {
+        for await (const ev of stream) {
+          if (ev.type === 'done') setCached(key, { mode: 'design', ...ev.result });
+          if (ev.type === 'questions') setCached(key, { mode: 'questions', questions: ev.questions });
+          yield ev;
+        }
+      })(),
+    );
+  }
+
   try {
-    const result = await getEngine().generate(request);
+    const result = await engine.generate(request);
     setCached(key, result);
     return NextResponse.json(result);
   } catch (e) {
@@ -93,4 +126,30 @@ export async function POST(req: Request) {
     console.error('[api/generate] unexpected error', e);
     return NextResponse.json({ error: '화면 생성 중 오류가 발생했습니다. 다시 시도해 주세요.' }, { status: 502 });
   }
+}
+
+/** Wrap an async generator of StreamEvents into a text/event-stream Response. */
+function sseResponse(events: AsyncGenerator<StreamEvent>): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        for await (const ev of events) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
+        }
+      } catch (e) {
+        const message = e instanceof EngineError ? e.userMessage : '화면 생성 중 오류가 발생했습니다.';
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', message })}\n\n`));
+      } finally {
+        controller.close();
+      }
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    },
+  });
 }

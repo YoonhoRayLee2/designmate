@@ -304,3 +304,24 @@ NH농협 사내 화면 설계 도우미의 개선 작업을 시간순으로 누�
 - `typecheck` / `lint` / `format:check` / `build` 모두 통과 ✓
 - **온보딩 렌더**(헤드리스 크롬): 3단계 가이드·팁 박스·예시 칩 스크린샷 확인 ✓
 - **버전 E2E**(CDP로 2버전 주입 후 조작): 라벨 "버전 1/2"·"버전 2/2", 버튼 상태(v1=이 버전 보기 활성, v2=현재 보는 버전 비활성), 기본은 v2 표시 → v1 버튼 클릭 시 배너 노출 + 스펙 패널이 v1으로 전환됨을 실측 확인 ✓
+
+---
+
+## Phase 9 — 응답 스트리밍(SSE) (2026-08-08)
+
+**배경:** 생성 시 30~60초 동안 "생각 중…"만 떠서 체감 지연이 컸다. HTML author 출력을 토큰 단위로 흘려보내 "그려지는 과정"을 실시간으로 보여준다. 기존 비스트리밍 경로는 보존(규칙 엔진·캐시 히트용).
+
+### 변경 — `types.ts`, `groqEngine.ts`, `app/api/generate/route.ts`, `app/page.tsx`, `globals.css`
+
+- **`StreamEvent` 타입** 신설: `status | questions | html(delta) | done | error`. `DesignEngine.generateStream?()`(선택 메서드)로 인터페이스 확장 — 미구현 엔진은 라우트가 자동으로 비스트리밍 폴백.
+- **엔진**: `planDesign()`으로 planner+vision 준비 로직을 공통 추출(비스트리밍 `generate`와 공유). `callGroqStream()` — Groq `stream:true` SSE를 파싱해 delta를 yield(스트림 시작 전 429/5xx 재시도, 시작 후 실패는 받은 만큼으로 마감). `generateStream()`이 status→(questions|html*→done) 순으로 방출.
+- **API 라우트**: `?stream=1`이고 엔진이 스트리밍 지원 시 `text/event-stream` 응답(`sseResponse`). done/questions 시 캐시에 저장. **캐시 히트는 단일 done 이벤트로 즉시 리플레이**(클라 처리 일원화).
+- **클라이언트**: `callEngine`이 SSE를 읽어 status는 로딩 문구로, html delta는 `streamHtml` 누적→결과 패널에 **실시간 와이어프레임 미리보기**("✍️ 실시간으로 그리는 중…" 태그). content-type이 event-stream이 아니면 기존 JSON 폴백. `applyResult()`로 최종 반영.
+
+### 검증 (dev 서버)
+
+- **서버 SSE**(상세 프롬프트): `status`×2("요구사항 분석"→"화면 그리는 중") → `html`×2092(총 7562자 델타) → `done`(spec title/list, NH그린 O) 실측 ✓
+- **캐시 히트 리플레이**: 동일 요청 → `done` 단일 이벤트, `cache hit` 로그, **~19ms** ✓
+- **브라우저 내 fetch+파싱**(CDP): 실제 Chrome에서 `ReadableStream` SSE 파싱이 status/html/done을 정상 수신 — 클라 `callEngine`과 동일 경로 ✓
+- **라이브 미리보기 시각**(하네스): ~55% 시점 부분 HTML이 NH그린 제목+검색조건 카드로 렌더되며 "그리는 중" 태그 노출 스크린샷 확인 ✓
+- `typecheck` / `lint` / `format:check` / `build` 모두 통과 ✓

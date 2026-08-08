@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import SpecPanel from '@/components/SpecPanel';
 import WireframePreview from '@/components/WireframePreview';
-import type { ChatMessage, ClarifyingQuestion, EngineOutput, GenerateResult } from '@/lib/engine/types';
+import type { ChatMessage, ClarifyingQuestion, EngineOutput, GenerateResult, StreamEvent } from '@/lib/engine/types';
 
 const STORAGE_KEY = 'designmate.projects.v1';
 const LEGACY_KEY = 'designmate.session.v2';
@@ -129,6 +129,9 @@ export default function Home() {
   const [input, setInput] = useState('');
   const [pendingImages, setPendingImages] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  // Phase 9: live streaming state — status line + partial HTML as it's authored.
+  const [streamStatus, setStreamStatus] = useState('');
+  const [streamHtml, setStreamHtml] = useState('');
   const [error, setError] = useState('');
   const [lastFailed, setLastFailed] = useState<ChatMessage | null>(null);
   const [copied, setCopied] = useState('');
@@ -212,25 +215,68 @@ export default function Home() {
     setError('');
     setLastFailed(null);
     setLoading(true);
+    setStreamStatus('생각 중…');
+    setStreamHtml('');
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const res = await fetch('/api/generate', {
+      const res = await fetch('/api/generate?stream=1', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: buildHistory([userMessage]), currentSpec: latestResult?.spec }),
         signal: controller.signal,
       });
-      const data = (await res.json()) as EngineOutput | { error: string };
-      if (!res.ok || 'error' in data) throw new Error(('error' in data && data.error) || '생성에 실패했습니다.');
 
-      if (data.mode === 'questions') {
-        setTurns((prev) => [...prev, { kind: 'questions', questions: data.questions }]);
-      } else {
-        setTurns((prev) => [...prev, { kind: 'design', result: data }]);
-        setPinnedTurn(null); // a new version supersedes any pinned older one
-        setMobileView('result'); // on mobile, jump to the freshly generated screen
+      // Non-streaming fallback (e.g. rule engine, or a JSON error response).
+      const contentType = res.headers.get('content-type') ?? '';
+      if (!res.ok || !res.body || !contentType.includes('text/event-stream')) {
+        const data = (await res.json()) as EngineOutput | { error: string };
+        if (!res.ok || 'error' in data) throw new Error(('error' in data && data.error) || '생성에 실패했습니다.');
+        applyResult(data);
+        return;
       }
+
+      // Parse the SSE stream: `data: {json}\n\n` events.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let streamError = '';
+      let gotResult = false;
+      let partial = '';
+
+      readLoop: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() ?? '';
+        for (const part of parts) {
+          const line = part.split('\n').find((l) => l.startsWith('data:'));
+          if (!line) continue;
+          const ev = JSON.parse(line.slice(5).trim()) as StreamEvent;
+          if (ev.type === 'status') {
+            setStreamStatus(ev.message);
+          } else if (ev.type === 'html') {
+            partial += ev.delta;
+            setStreamHtml(partial);
+            setMobileView('result'); // reveal the drawing as it happens (mobile)
+          } else if (ev.type === 'questions') {
+            setTurns((prev) => [...prev, { kind: 'questions', questions: ev.questions }]);
+            gotResult = true;
+            break readLoop;
+          } else if (ev.type === 'done') {
+            applyResult({ mode: 'design', ...ev.result });
+            gotResult = true;
+            break readLoop;
+          } else if (ev.type === 'error') {
+            streamError = ev.message;
+            break readLoop;
+          }
+        }
+      }
+
+      if (streamError) throw new Error(streamError);
+      if (!gotResult) throw new Error('생성이 완료되지 않았습니다. 다시 시도해 주세요.');
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
         setError(''); // user-initiated cancel: no error banner
@@ -240,7 +286,20 @@ export default function Home() {
       }
     } finally {
       setLoading(false);
+      setStreamStatus('');
+      setStreamHtml('');
       abortRef.current = null;
+    }
+  }
+
+  // Apply a finished EngineOutput to the turn list.
+  function applyResult(data: EngineOutput) {
+    if (data.mode === 'questions') {
+      setTurns((prev) => [...prev, { kind: 'questions', questions: data.questions }]);
+    } else {
+      setTurns((prev) => [...prev, { kind: 'design', result: data }]);
+      setPinnedTurn(null); // a new version supersedes any pinned older one
+      setMobileView('result'); // on mobile, jump to the freshly generated screen
     }
   }
 
@@ -531,7 +590,7 @@ export default function Home() {
 
             {loading && (
               <div className="bubble bot loading" role="status" aria-live="polite">
-                생각 중…
+                {streamStatus || '생각 중…'}
                 <button type="button" className="inline-link" onClick={cancel}>
                   취소
                 </button>
@@ -634,7 +693,13 @@ export default function Home() {
                 </button>
               </div>
             )}
-            {latestResult ? (
+            {loading && streamHtml ? (
+              // Phase 9: live preview — the wireframe as it's being authored.
+              <div className="output-wire streaming" aria-live="polite">
+                <div className="stream-tag">✍️ 실시간으로 그리는 중…</div>
+                <WireframePreview html={streamHtml} />
+              </div>
+            ) : latestResult ? (
               <div className="output-split">
                 <div className="output-spec">
                   <SpecPanel markdown={latestResult.specMarkdown} />

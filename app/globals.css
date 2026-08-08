@@ -411,6 +411,24 @@ button {
   margin-top: 6px;
   font-size: 12px;
 }
+/* Phase 9: live-streaming wireframe preview */
+.output-wire.streaming {
+  position: relative;
+  height: 100%;
+}
+.stream-tag {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  z-index: 2;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--nh-green);
+  padding: 4px 10px;
+  border-radius: 999px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
 /* A2: banner shown when viewing an older (pinned) version */
 .version-banner {
   display: flex;

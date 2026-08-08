@@ -91,6 +91,23 @@ export interface GenerateRequest {
   currentSpec?: DesignSpec;
 }
 
+/**
+ * Streaming events emitted while a design is produced (Phase 9).
+ * - status: a human-facing progress line (planner running, drawing, …)
+ * - questions: the engine chose to ask instead of design (terminal)
+ * - html: an incremental chunk of the wireframe HTML as it's authored
+ * - done: the finished result (terminal)
+ * - error: a user-facing failure message (terminal)
+ */
+export type StreamEvent =
+  | { type: 'status'; message: string }
+  | { type: 'questions'; questions: ClarifyingQuestion[] }
+  | { type: 'html'; delta: string }
+  | { type: 'done'; result: GenerateResult }
+  | { type: 'error'; message: string };
+
 export interface DesignEngine {
   generate(req: GenerateRequest): Promise<EngineOutput>;
+  /** Optional streaming variant. When absent, the route falls back to generate(). */
+  generateStream?(req: GenerateRequest): AsyncGenerator<StreamEvent>;
 }

@@ -8,6 +8,7 @@ import type {
   GenerateRequest,
   PermissionRow,
   ScreenType,
+  StreamEvent,
 } from './types';
 import { renderSpecMarkdown } from '../spec';
 import { colorGuideLine, stylingGuideLine } from '../designTokens';
@@ -298,6 +299,97 @@ async function callGroq(
   throw lastErr ?? new EngineError('화면 생성 중 오류가 발생했습니다.');
 }
 
+/**
+ * Streaming variant of callGroq: yields content deltas as the model produces them.
+ * Retries 429/5xx before the stream starts (bounded); once bytes flow, a failure
+ * mid-stream ends the generator (the caller keeps whatever arrived). Text-only use.
+ */
+async function* callGroqStream(
+  apiKey: string,
+  body: { model: string; [key: string]: unknown },
+  label: string,
+): AsyncGenerator<string> {
+  let lastErr: EngineError | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const started = Date.now();
+    try {
+      const res = await fetch(GROQ_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, stream: true }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok || !res.body) {
+        const detail = (await res.text().catch(() => '')).slice(0, 300);
+        const retriable = res.status === 429 || res.status >= 500;
+        console.error(
+          `[groq] ${label} model=${body.model} status=${res.status} attempt=${attempt} ${Date.now() - started}ms ${detail}`,
+        );
+        lastErr = new EngineError(statusMessage(res.status), `${res.status} ${detail}`);
+        if (retriable && attempt < MAX_RETRIES) {
+          const retryAfter = Number(res.headers.get('retry-after'));
+          const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1500 * (attempt + 1);
+          clearTimeout(timer);
+          await sleep(wait);
+          continue;
+        }
+        clearTimeout(timer);
+        throw lastErr;
+      }
+
+      // Parse the SSE stream: lines of `data: {json}` with a final `data: [DONE]`.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? ''; // keep the trailing partial line
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) continue;
+          const payload = trimmed.slice(5).trim();
+          if (payload === '[DONE]') continue;
+          try {
+            const chunk = JSON.parse(payload);
+            const delta = chunk?.choices?.[0]?.delta?.content;
+            if (typeof delta === 'string' && delta) yield delta;
+          } catch {
+            /* ignore keep-alive / non-JSON lines */
+          }
+        }
+      }
+      console.info(`[groq] ${label} model=${body.model} stream-ok attempt=${attempt} ${Date.now() - started}ms`);
+      return;
+    } catch (e) {
+      if (e instanceof EngineError) throw e;
+      const aborted = e instanceof Error && e.name === 'AbortError';
+      console.error(
+        `[groq] ${label} model=${body.model} ${aborted ? 'timeout' : 'network-error'} attempt=${attempt}`,
+        e,
+      );
+      lastErr = new EngineError(
+        aborted ? '응답이 지연되어 중단했습니다. 잠시 후 다시 시도해 주세요.' : 'AI 서비스에 연결하지 못했습니다.',
+        e instanceof Error ? e.message : String(e),
+      );
+      if (attempt < MAX_RETRIES) {
+        await sleep(1500 * (attempt + 1));
+        continue;
+      }
+      throw lastErr;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastErr ?? new EngineError('화면 생성 중 오류가 발생했습니다.');
+}
+
 /** Ask the vision model to describe reference images as text (for the text-only HTML model). */
 async function describeReferences(apiKey: string, message: ChatMessage): Promise<string> {
   const raw = await callGroq(
@@ -320,97 +412,165 @@ async function describeReferences(apiKey: string, message: ChatMessage): Promise
   return stripThink(raw);
 }
 
+/** Body for the HTML-author call, shared by streaming and non-streaming paths. */
+function htmlAuthorBody(
+  req: GenerateRequest,
+  spec: DesignSpec,
+  textMessages: { role: string; content: string }[],
+  referenceNote: string,
+) {
+  const htmlSystem = req.currentSpec
+    ? `${HTML_STYLE_GUIDE}\n\n[직전 화면 HTML을 최신 지시대로 수정하되, 무관한 부분은 유지한다.]`
+    : HTML_STYLE_GUIDE;
+  return {
+    model: HTML_MODEL,
+    temperature: 0.5,
+    max_tokens: MAX_TOKENS,
+    messages: [
+      { role: 'system', content: htmlSystem },
+      ...textMessages,
+      {
+        role: 'user',
+        content: `위 요구사항과 아래 SPEC을 반영한 완전한 HTML 문서를 출력해줘.\nSPEC: ${JSON.stringify(spec)}${referenceNote}`,
+      },
+    ],
+  };
+}
+
+/** Fallback document when the model returns no usable HTML. */
+const HTML_FALLBACK =
+  '<!DOCTYPE html><html><body style="font-family:sans-serif;padding:24px;color:#71717a">화면 생성에 실패했습니다. 다시 시도해 주세요.</body></html>';
+
+interface PlanResult {
+  questions?: ClarifyingQuestion[]; // set when the engine chose to ask instead
+  spec?: DesignSpec;
+  textMessages?: { role: string; content: string }[];
+  referenceNote?: string;
+}
+
+/**
+ * Run the planner (+ optional vision description). Returns either clarifying
+ * questions or the inputs needed to author the HTML. Shared by both paths.
+ */
+async function planDesign(apiKey: string, req: GenerateRequest): Promise<PlanResult> {
+  const lastUser = [...req.messages].reverse().find((m) => m.role === 'user');
+  const prompt = lastUser?.content ?? '';
+  const hasImages = !!(lastUser?.images && lastUser.images.length);
+  const textMessages = req.messages.map((m) => ({ role: m.role, content: m.content }));
+
+  const plannerSystem = req.currentSpec
+    ? `${PLANNER_PROMPT}\n\n[CURRENT_SPEC — 현재 화면 설계. 최신 지시로 이것을 수정하라]\n${JSON.stringify(req.currentSpec)}`
+    : PLANNER_PROMPT;
+  const plannerHint = hasImages
+    ? '\n\n[참고: 사용자가 레퍼런스 이미지를 첨부했다. 이미지는 별도 분석되어 반영되니, 텍스트만으로 판단해 되도록 mode="design"으로 진행하라.]'
+    : '';
+
+  const plannerRaw = await callGroq(
+    apiKey,
+    {
+      model: HTML_MODEL,
+      temperature: 0.4,
+      max_tokens: 2000,
+      response_format: { type: 'json_object' },
+      messages: [{ role: 'system', content: plannerSystem + plannerHint }, ...textMessages],
+    },
+    'planner',
+  );
+
+  let plan: PlannerPayload;
+  try {
+    const cleaned = stripThink(plannerRaw);
+    const jsonText = cleaned.startsWith('{') ? cleaned : (cleaned.match(/\{[\s\S]*\}/)?.[0] ?? cleaned);
+    plan = JSON.parse(jsonText);
+  } catch {
+    throw new EngineError(
+      '설계 분석에 실패했습니다. 다시 시도해 주세요.',
+      `planner non-JSON: ${plannerRaw.slice(0, 200)}`,
+    );
+  }
+
+  if (plan.mode === 'questions' && !plan.spec) {
+    const questions = coerceQuestions(plan.questions);
+    if (questions.length) return { questions };
+  }
+
+  const spec = coerceSpec(plan.spec ?? {}, prompt);
+
+  let referenceNote = '';
+  if (hasImages && lastUser) {
+    try {
+      const desc = await describeReferences(apiKey, lastUser);
+      if (desc) referenceNote = `\n\n[레퍼런스 이미지 분석 — 이 구조/감각을 NH 톤으로 재해석해 반영]\n${desc}`;
+    } catch (e) {
+      console.error('[groq] reference description failed (continuing without it)', e);
+    }
+  }
+
+  return { spec, textMessages, referenceNote };
+}
+
 export function createGroqEngine(apiKey: string): DesignEngine {
   return {
     async generate(req: GenerateRequest): Promise<EngineOutput> {
-      const lastUser = [...req.messages].reverse().find((m) => m.role === 'user');
-      const prompt = lastUser?.content ?? '';
-      const hasImages = !!(lastUser?.images && lastUser.images.length);
-      // History as plain text; images are handled separately via the vision model.
-      const textMessages = req.messages.map((m) => ({ role: m.role, content: m.content }));
+      const plan = await planDesign(apiKey, req);
+      if (plan.questions) return { mode: 'questions', questions: plan.questions };
 
-      // --- Call A: planner (JSON mode). Uses the text model — reliable JSON —
-      // on text-only messages. Image understanding is handled separately below
-      // via the vision model, whose description feeds the HTML author. ---
-      const plannerSystem = req.currentSpec
-        ? `${PLANNER_PROMPT}\n\n[CURRENT_SPEC — 현재 화면 설계. 최신 지시로 이것을 수정하라]\n${JSON.stringify(req.currentSpec)}`
-        : PLANNER_PROMPT;
-      const plannerHint = hasImages
-        ? '\n\n[참고: 사용자가 레퍼런스 이미지를 첨부했다. 이미지는 별도 분석되어 반영되니, 텍스트만으로 판단해 되도록 mode="design"으로 진행하라.]'
-        : '';
-
-      const plannerRaw = await callGroq(
+      const spec = plan.spec!;
+      const htmlRaw = await callGroq(
         apiKey,
-        {
-          model: HTML_MODEL,
-          temperature: 0.4,
-          max_tokens: 2000,
-          response_format: { type: 'json_object' },
-          messages: [{ role: 'system', content: plannerSystem + plannerHint }, ...textMessages],
-        },
-        'planner',
+        htmlAuthorBody(req, spec, plan.textMessages!, plan.referenceNote ?? ''),
+        'html',
       );
+      const html = stripFence(htmlRaw);
+      const wireframeHtml = html.includes('<') ? html : HTML_FALLBACK;
+      return { mode: 'design', spec, wireframeHtml, specMarkdown: renderSpecMarkdown(spec) };
+    },
 
-      let plan: PlannerPayload;
+    async *generateStream(req: GenerateRequest): AsyncGenerator<StreamEvent> {
+      yield { type: 'status', message: '요구사항을 분석하고 있어요…' };
+      let plan: PlanResult;
       try {
-        // Strip any <think> wrapper, then parse; fall back to the first {...} block.
-        const cleaned = stripThink(plannerRaw);
-        const jsonText = cleaned.startsWith('{') ? cleaned : (cleaned.match(/\{[\s\S]*\}/)?.[0] ?? cleaned);
-        plan = JSON.parse(jsonText);
-      } catch {
-        throw new EngineError(
-          '설계 분석에 실패했습니다. 다시 시도해 주세요.',
-          `planner non-JSON: ${plannerRaw.slice(0, 200)}`,
-        );
+        plan = await planDesign(apiKey, req);
+      } catch (e) {
+        yield {
+          type: 'error',
+          message: e instanceof EngineError ? e.userMessage : '화면 생성 중 오류가 발생했습니다.',
+        };
+        return;
       }
 
-      if (plan.mode === 'questions' && !plan.spec) {
-        const questions = coerceQuestions(plan.questions);
-        if (questions.length) return { mode: 'questions', questions };
+      if (plan.questions) {
+        yield { type: 'questions', questions: plan.questions };
+        return;
       }
 
-      const spec = coerceSpec(plan.spec ?? {}, prompt);
+      const spec = plan.spec!;
+      yield { type: 'status', message: '화면을 그리고 있어요…' };
 
-      // If a reference image was attached, describe it in text for the HTML model.
-      let referenceNote = '';
-      if (hasImages && lastUser) {
-        try {
-          const desc = await describeReferences(apiKey, lastUser);
-          if (desc) referenceNote = `\n\n[레퍼런스 이미지 분석 — 이 구조/감각을 NH 톤으로 재해석해 반영]\n${desc}`;
-        } catch (e) {
-          console.error('[groq] reference description failed (continuing without it)', e);
+      let raw = '';
+      try {
+        for await (const delta of callGroqStream(
+          apiKey,
+          htmlAuthorBody(req, spec, plan.textMessages!, plan.referenceNote ?? ''),
+          'html',
+        )) {
+          raw += delta;
+          yield { type: 'html', delta };
+        }
+      } catch (e) {
+        // If nothing streamed yet, surface the error; otherwise finish with what we have.
+        if (!raw) {
+          yield {
+            type: 'error',
+            message: e instanceof EngineError ? e.userMessage : '화면 생성 중 오류가 발생했습니다.',
+          };
+          return;
         }
       }
 
-      // --- Call B: HTML author (large text model, no images) ---
-      const htmlSystem = req.currentSpec
-        ? `${HTML_STYLE_GUIDE}\n\n[직전 화면 HTML을 최신 지시대로 수정하되, 무관한 부분은 유지한다.]`
-        : HTML_STYLE_GUIDE;
-
-      const htmlRaw = await callGroq(
-        apiKey,
-        {
-          model: HTML_MODEL,
-          temperature: 0.5,
-          max_tokens: MAX_TOKENS,
-          messages: [
-            { role: 'system', content: htmlSystem },
-            ...textMessages,
-            {
-              role: 'user',
-              content: `위 요구사항과 아래 SPEC을 반영한 완전한 HTML 문서를 출력해줘.\nSPEC: ${JSON.stringify(spec)}${referenceNote}`,
-            },
-          ],
-        },
-        'html',
-      );
-
-      const html = stripFence(htmlRaw);
-      const wireframeHtml = html.includes('<')
-        ? html
-        : '<!DOCTYPE html><html><body style="font-family:sans-serif;padding:24px;color:#71717a">화면 생성에 실패했습니다. 다시 시도해 주세요.</body></html>';
-
-      return { mode: 'design', spec, wireframeHtml, specMarkdown: renderSpecMarkdown(spec) };
+      const html = stripFence(raw);
+      const wireframeHtml = html.includes('<') ? html : HTML_FALLBACK;
+      yield { type: 'done', result: { spec, wireframeHtml, specMarkdown: renderSpecMarkdown(spec) } };
     },
   };
 }
