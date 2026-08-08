@@ -9,6 +9,8 @@ const MAX_IMAGES = 5;
 const MAX_IMAGE_CHARS = Math.ceil((4 * 1024 * 1024 * 4) / 3);
 const ALLOWED_IMAGE = /^data:image\/(png|jpe?g|webp|gif);base64,/i;
 const MAX_CONTENT_CHARS = 8000;
+// Wireframe HTML for localized edits (Phase 10). Generous but bounded.
+const MAX_HTML_CHARS = 60_000;
 
 function sanitizeImages(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
@@ -26,7 +28,7 @@ function sanitizeSpec(raw: unknown): DesignSpec | undefined {
 }
 
 export async function POST(req: Request) {
-  let body: { messages?: unknown; currentSpec?: unknown };
+  let body: { messages?: unknown; currentSpec?: unknown; currentHtml?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -72,8 +74,11 @@ export async function POST(req: Request) {
   }
 
   const currentSpec = sanitizeSpec(body.currentSpec);
+  // Phase 10: current wireframe HTML for localized edits. Cap length defensively.
+  const currentHtml =
+    typeof body.currentHtml === 'string' && body.currentHtml.length <= MAX_HTML_CHARS ? body.currentHtml : undefined;
 
-  const request = { messages, currentSpec };
+  const request = { messages, currentSpec, currentHtml };
   const key = cacheKey(request);
   const cached = getCached(key);
   const wantsStream = new URL(req.url).searchParams.get('stream') === '1';

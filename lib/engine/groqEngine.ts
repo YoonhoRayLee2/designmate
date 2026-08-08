@@ -72,6 +72,12 @@ ${NH_CONTEXT}
   }
 }
 
+(C) 국소 수정할 때 (이미 만든 화면이 있고, 사용자가 그 화면의 일부만 고쳐달라고 할 때):
+{ "mode":"edit" }
+- 예: "이 버튼 빨간색으로", "잔액 컬럼 지워", "제목을 XX로 바꿔", "행 하나 더 추가" 등 **기존 화면의 부분 변경** 요청.
+- 화면 유형·목적 자체가 바뀌는 큰 변경이거나 새 화면 요청이면 edit가 아니라 design.
+- 현재 화면이 없으면 절대 edit를 쓰지 않는다.
+
 [screenType 판단 가이드]
 - approval: 승인/결재/반려 등 결재선·처리 액션이 핵심인 화면
 - wizard: 여러 단계를 순차 진행하는 신청/등록(단계 표시기 있음)
@@ -109,8 +115,17 @@ ${NH_CONTEXT}
 
 [레퍼런스 이미지가 첨부된 경우] 레이아웃 구조·컴포넌트 배치·정보 위계·여백 감각을 참고하되, NH 브랜드 톤과 사내 맥락에 맞게 재해석한다. 그대로 베끼지 말 것.`;
 
+// --- Call B': HTML editor. Minimally edits existing HTML for a localized change. ---
+const HTML_EDIT_GUIDE = `너는 NH농협 사내 시스템 프론트엔드 개발자다. 이미 완성된 화면 HTML이 주어진다. 사용자의 수정 요청을 반영하되, **요청과 무관한 부분은 한 글자도 바꾸지 마라.**
+
+절대 규칙:
+- 전체 HTML 문서를 다시 출력한다(<!DOCTYPE html>부터 </html>까지). 단, 요청한 변경만 반영하고 나머지 구조·텍스트·스타일·값은 원본 그대로 유지한다.
+- 새로 화면을 그리지 마라. 리팩터링·재배치·톤 변경 금지. 요청한 최소 변경만.
+- 코드펜스(\`\`\`)·설명 문장 금지. HTML 문서 하나만.
+- 접근성·시맨틱 마크업은 유지한다(라벨·alt·scope 등 제거 금지).`;
+
 interface PlannerPayload {
-  mode?: 'questions' | 'design';
+  mode?: 'questions' | 'design' | 'edit';
   questions?: unknown;
   spec?: Partial<DesignSpec>;
 }
@@ -442,12 +457,35 @@ function htmlAuthorBody(
   };
 }
 
+/** Body for the HTML-editor call (Phase 10): minimally edit existing HTML. */
+function htmlEditBody(instruction: string, currentHtml: string) {
+  // The edited output is ~the same size as the input, which is already in the
+  // prompt. On the free tier (TPM 8000 counts prompt+max_tokens together),
+  // budget output to the input size plus slack, capped at MAX_TOKENS.
+  const approxInputTokens = Math.ceil(currentHtml.length / 3);
+  const maxTokens = Math.min(MAX_TOKENS, Math.max(1500, approxInputTokens + 600));
+  return {
+    model: HTML_MODEL,
+    temperature: 0.2, // low — we want faithful minimal edits, not creativity
+    seed: SEED,
+    max_tokens: maxTokens,
+    messages: [
+      { role: 'system', content: HTML_EDIT_GUIDE },
+      {
+        role: 'user',
+        content: `[현재 화면 HTML]\n${currentHtml}\n\n[수정 요청]\n${instruction}\n\n위 수정 요청만 반영한 완전한 HTML 문서를 출력해줘. 나머지는 그대로.`,
+      },
+    ],
+  };
+}
+
 /** Fallback document when the model returns no usable HTML. */
 const HTML_FALLBACK =
   '<!DOCTYPE html><html><body style="font-family:sans-serif;padding:24px;color:#71717a">화면 생성에 실패했습니다. 다시 시도해 주세요.</body></html>';
 
 interface PlanResult {
   questions?: ClarifyingQuestion[]; // set when the engine chose to ask instead
+  edit?: { instruction: string; currentHtml: string; spec: DesignSpec }; // localized edit path
   spec?: DesignSpec;
   textMessages?: { role: string; content: string }[];
   referenceNote?: string;
@@ -463,12 +501,17 @@ async function planDesign(apiKey: string, req: GenerateRequest): Promise<PlanRes
   const hasImages = !!(lastUser?.images && lastUser.images.length);
   const textMessages = req.messages.map((m) => ({ role: m.role, content: m.content }));
 
+  const hasCurrentHtml = typeof req.currentHtml === 'string' && req.currentHtml.length > 0;
   const plannerSystem = req.currentSpec
     ? `${PLANNER_PROMPT}\n\n[CURRENT_SPEC — 현재 화면 설계. 최신 지시로 이것을 수정하라]\n${JSON.stringify(req.currentSpec)}`
     : PLANNER_PROMPT;
-  const plannerHint = hasImages
+  const imageHint = hasImages
     ? '\n\n[참고: 사용자가 레퍼런스 이미지를 첨부했다. 이미지는 별도 분석되어 반영되니, 텍스트만으로 판단해 되도록 mode="design"으로 진행하라.]'
     : '';
+  const editHint = hasCurrentHtml
+    ? '\n\n[참고: 이미 만든 화면이 있다. 사용자의 마지막 지시가 그 화면의 일부만 바꾸는 국소 수정이면 mode="edit"으로 답하라(레이아웃/유형이 통째로 바뀌면 design).]'
+    : '';
+  const plannerHint = imageHint + editHint;
 
   const plannerRaw = await callGroq(
     apiKey,
@@ -493,6 +536,11 @@ async function planDesign(apiKey: string, req: GenerateRequest): Promise<PlanRes
       '설계 분석에 실패했습니다. 다시 시도해 주세요.',
       `planner non-JSON: ${plannerRaw.slice(0, 200)}`,
     );
+  }
+
+  // Localized edit path: reuse the current spec, edit the current HTML directly.
+  if (plan.mode === 'edit' && hasCurrentHtml && req.currentSpec) {
+    return { edit: { instruction: prompt, currentHtml: req.currentHtml as string, spec: req.currentSpec } };
   }
 
   if (plan.mode === 'questions' && !plan.spec) {
@@ -521,6 +569,19 @@ export function createGroqEngine(apiKey: string): DesignEngine {
       const plan = await planDesign(apiKey, req);
       if (plan.questions) return { mode: 'questions', questions: plan.questions };
 
+      // Localized edit: minimally edit the current HTML, keep the current spec.
+      if (plan.edit) {
+        const raw = await callGroq(apiKey, htmlEditBody(plan.edit.instruction, plan.edit.currentHtml), 'html-edit');
+        const html = stripFence(raw);
+        const wireframeHtml = html.includes('<') ? html : plan.edit.currentHtml;
+        return {
+          mode: 'design',
+          spec: plan.edit.spec,
+          wireframeHtml,
+          specMarkdown: renderSpecMarkdown(plan.edit.spec),
+        };
+      }
+
       const spec = plan.spec!;
       const htmlRaw = await callGroq(
         apiKey,
@@ -547,6 +608,38 @@ export function createGroqEngine(apiKey: string): DesignEngine {
 
       if (plan.questions) {
         yield { type: 'questions', questions: plan.questions };
+        return;
+      }
+
+      // Localized edit path (Phase 10): stream the minimally-edited HTML.
+      if (plan.edit) {
+        const edit = plan.edit;
+        yield { type: 'status', message: '요청하신 부분만 수정하고 있어요…' };
+        let editRaw = '';
+        try {
+          for await (const delta of callGroqStream(
+            apiKey,
+            htmlEditBody(edit.instruction, edit.currentHtml),
+            'html-edit',
+          )) {
+            editRaw += delta;
+            yield { type: 'html', delta };
+          }
+        } catch (e) {
+          if (!editRaw) {
+            yield {
+              type: 'error',
+              message: e instanceof EngineError ? e.userMessage : '수정 중 오류가 발생했습니다.',
+            };
+            return;
+          }
+        }
+        const editedHtml = stripFence(editRaw);
+        const wireframeHtml = editedHtml.includes('<') ? editedHtml : edit.currentHtml;
+        yield {
+          type: 'done',
+          result: { spec: edit.spec, wireframeHtml, specMarkdown: renderSpecMarkdown(edit.spec) },
+        };
         return;
       }
 

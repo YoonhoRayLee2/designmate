@@ -19,7 +19,7 @@ export function cacheKey(req: GenerateRequest): string {
     content: m.content,
     images: m.images ?? [],
   }));
-  return JSON.stringify({ messages, currentSpec: req.currentSpec ?? null });
+  return JSON.stringify({ messages, currentSpec: req.currentSpec ?? null, currentHtml: req.currentHtml ?? null });
 }
 
 export function getCached(key: string): EngineOutput | undefined {

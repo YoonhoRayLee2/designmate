@@ -89,6 +89,12 @@ export interface GenerateRequest {
   messages: ChatMessage[];
   /** The spec currently on screen, if this is a refinement of an existing design. */
   currentSpec?: DesignSpec;
+  /**
+   * The wireframe HTML currently on screen (Phase 10). When present with a
+   * localized edit request, the engine minimally edits this HTML instead of
+   * regenerating the whole screen from the spec.
+   */
+  currentHtml?: string;
 }
 
 /**

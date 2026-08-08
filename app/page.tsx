@@ -223,7 +223,11 @@ export default function Home() {
       const res = await fetch('/api/generate?stream=1', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: buildHistory([userMessage]), currentSpec: latestResult?.spec }),
+        body: JSON.stringify({
+          messages: buildHistory([userMessage]),
+          currentSpec: latestResult?.spec,
+          currentHtml: latestResult?.wireframeHtml,
+        }),
         signal: controller.signal,
       });
 

@@ -342,3 +342,25 @@ NH농협 사내 화면 설계 도우미의 개선 작업을 시간순으로 누�
 
 - `typecheck` / `lint` / `format:check` / `build` 모두 통과 ✓
 - **규칙엔진 도메인 E2E**(키 없이): "대출 심사 목록"→여신, "예금 잔액 조회"→수신, "조합원 상담 이력"→조합원관리 실측 ✓
+
+---
+
+## Phase 10 — 자연어 국소 수정(C1, D안) (2026-08-08)
+
+**배경:** "직접 편집"의 원안 후보는 (A) HTML 코드 편집이었으나, **사용자 대부분이 코딩 문외한**이라는 점을 반영해 방향 전환. 코드 0줄로 "이 버튼 빨간색으로", "행 추가" 같은 자연어 지시로 **기존 화면의 일부만** 고치는 방식(D안)으로 결정. UI는 기존 대화창 그대로 — 수정/신규를 자동 판단.
+
+### 변경 — `types.ts`, `cache.ts`, `route.ts`, `groqEngine.ts`, `app/page.tsx`
+
+- **`GenerateRequest.currentHtml`** 추가 — 클라이언트가 현재 와이어프레임 HTML을 함께 전송(수정 시 필요). API에서 60KB 상한 검증, 캐시 키에도 포함.
+- **planner에 `mode:"edit"` 판단** — 현재 화면(currentHtml)이 있고 마지막 지시가 국소 변경이면 edit, 유형/목적이 통째로 바뀌면 design. currentHtml 있을 때만 edit 힌트 주입.
+- **국소 수정 경로** — `HTML_EDIT_GUIDE`("무관한 부분 한 글자도 바꾸지 마라") + `htmlEditBody()`(현재 HTML+지시 → 최소 수정된 전체 HTML, temperature 0.2, max_tokens는 입력 크기에 맞춰 동적 산정으로 TPM 대응). spec은 기존 것 유지. `generate`·`generateStream` 양쪽에 edit 분기(스트리밍 상태 "요청하신 부분만 수정하고 있어요…").
+- 실패 시 원본 HTML로 폴백.
+
+### 검증 (dev 서버, 실키)
+
+- **국소 수정**: "제목 옆에 '신규 계좌 등록' 버튼 추가" → planner가 **edit 경로**, HTML 7849→7917자(+68), 버튼 추가됨, **base 라인 188/188(100%) 보존**, spec/title 유지 ✓
+- **신규 화면 오분류 방지**: currentHtml 있는 상태에서 "완전히 다른 결재 화면 새로 만들어" → **design 경로**(edit 아님), title "여신 대출 심사 결재"/screenType approval, base 라인 64/188만 잔존(전체 재생성) ✓
+- 서버 로그에 `html-edit` 호출 확인, 429는 재시도로 자동 복구 ✓
+- `typecheck` / `lint` / `format:check` / `build` 모두 통과 ✓
+
+> 참고: 코드 직접 편집(A안)은 코딩 문외한 사용자에 부적합하다는 판단으로 채택하지 않음. 국소 수정 정확도는 LLM 의존이라 드물게 무관한 부분이 바뀔 수 있어, 실패 시 버전 되돌리기(A2)로 복구 가능.
