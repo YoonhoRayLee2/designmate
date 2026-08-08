@@ -138,6 +138,9 @@ export default function Home() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // A2: when the user pins an earlier version, the result panel shows that turn
+  // instead of the latest. Cleared on any new generation. Stored as a turn index.
+  const [pinnedTurn, setPinnedTurn] = useState<number | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -180,9 +183,15 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turns]);
 
-  const latestResult = [...turns]
-    .reverse()
-    .find((t): t is Extract<Turn, { kind: 'design' }> => t.kind === 'design')?.result;
+  // All design turns with their turn index, in order — these are the "versions".
+  const designTurns = turns
+    .map((t, i) => (t.kind === 'design' ? { i, result: t.result } : null))
+    .filter((x): x is { i: number; result: GenerateResult } => x !== null);
+
+  // The result on screen: the pinned version if any (A2), else the newest design.
+  const activeDesign =
+    (pinnedTurn !== null && designTurns.find((d) => d.i === pinnedTurn)) || designTurns[designTurns.length - 1] || null;
+  const latestResult = activeDesign?.result;
 
   // Build the conversation history to send to the engine from the turn list.
   // Past images are dropped from history (kept only on the current message)
@@ -219,6 +228,7 @@ export default function Home() {
         setTurns((prev) => [...prev, { kind: 'questions', questions: data.questions }]);
       } else {
         setTurns((prev) => [...prev, { kind: 'design', result: data }]);
+        setPinnedTurn(null); // a new version supersedes any pinned older one
         setMobileView('result'); // on mobile, jump to the freshly generated screen
       }
     } catch (e) {
@@ -296,6 +306,7 @@ export default function Home() {
     setLastFailed(null);
     setInput('');
     setPendingImages([]);
+    setPinnedTurn(null);
     setMobileView('chat');
     setDrawerOpen(false);
   }
@@ -309,6 +320,7 @@ export default function Home() {
     setLastFailed(null);
     setInput('');
     setPendingImages([]);
+    setPinnedTurn(null);
     setMobileView(p.turns.some((t) => t.kind === 'design') ? 'result' : 'chat');
     setDrawerOpen(false);
   }
@@ -422,11 +434,38 @@ export default function Home() {
           <div className="panel-body chat-thread" ref={threadRef}>
             {!started && (
               <div className="chat-intro">
-                <p>어떤 화면이 필요하신가요? 만들고 싶은 업무 화면을 설명해 주세요.</p>
-                <p className="hint">
-                  정보가 부족하면 몇 가지를 먼저 여쭤봐요. 생성 후 “목록에 지점 필터 추가해줘”처럼 이어서 요청하면 계속
-                  개선됩니다.
+                <p className="intro-lead">어떤 화면이 필요하신가요? 만들고 싶은 업무 화면을 설명해 주세요.</p>
+
+                <ol className="intro-steps">
+                  <li>
+                    <span className="step-no">1</span>
+                    <span>
+                      <strong>요구사항을 적어요.</strong> 예시처럼 한 줄이면 충분하고, 정보가 부족하면 제가 먼저 몇
+                      가지를 여쭤봐요.
+                    </span>
+                  </li>
+                  <li>
+                    <span className="step-no">2</span>
+                    <span>
+                      <strong>정의서 + 와이어프레임</strong>이 오른쪽에 함께 나와요. (📎로 참고 이미지를 첨부하면 그
+                      느낌을 반영합니다.)
+                    </span>
+                  </li>
+                  <li>
+                    <span className="step-no">3</span>
+                    <span>
+                      <strong>이어서 대화로 다듬어요.</strong> “지점 필터 추가”, “승인 버튼 넣어줘”처럼 계속 요청하면
+                      누적 반영되고, 이전 버전으로 되돌릴 수도 있어요.
+                    </span>
+                  </li>
+                </ol>
+
+                <p className="intro-tip">
+                  💡 <strong>팁:</strong> 사용 주체(영업점 직원/조합원 등), 목적, 꼭 필요한 항목을 함께 적으면 훨씬
+                  정확해요.
                 </p>
+
+                <p className="chips-label">이렇게 시작해 보세요</p>
                 <div className="chips">
                   {EXAMPLES.map((ex) => (
                     <button key={ex} type="button" className="chip" onClick={() => sendText(ex)}>
@@ -452,15 +491,34 @@ export default function Home() {
                     {t.content}
                   </div>
                 );
-              if (t.kind === 'design')
+              if (t.kind === 'design') {
+                // Version number of this design among all design turns (1-based).
+                const versionNo = designTurns.findIndex((d) => d.i === i) + 1;
+                const isActive = activeDesign?.i === i;
+                const isMultiVersion = designTurns.length > 1;
                 return (
-                  <div key={i} className="bubble bot">
+                  <div key={i} className={`bubble bot ${isActive ? 'active-version' : ''}`}>
                     <strong>{t.result.spec.title}</strong> 화면을 만들었어요.
                     <span className="meta">
                       {t.result.spec.screenType} · {t.result.spec.domain}
+                      {isMultiVersion && ` · 버전 ${versionNo}/${designTurns.length}`}
                     </span>
+                    {isMultiVersion && (
+                      <button
+                        type="button"
+                        className="inline-link version-btn"
+                        disabled={loading || isActive}
+                        onClick={() => {
+                          setPinnedTurn(i);
+                          setMobileView('result');
+                        }}
+                      >
+                        {isActive ? '현재 보는 버전' : '이 버전 보기'}
+                      </button>
+                    )}
                   </div>
                 );
+              }
               return (
                 <QuestionCard
                   key={i}
@@ -568,6 +626,14 @@ export default function Home() {
             )}
           </div>
           <div className="panel-body output-body">
+            {pinnedTurn !== null && activeDesign?.i !== designTurns[designTurns.length - 1]?.i && (
+              <div className="version-banner" role="status">
+                이전 버전을 보고 있어요. 이대로 수정 요청하면 이 버전을 기준으로 이어집니다.
+                <button type="button" className="inline-link" onClick={() => setPinnedTurn(null)}>
+                  최신 버전으로
+                </button>
+              </div>
+            )}
             {latestResult ? (
               <div className="output-split">
                 <div className="output-spec">

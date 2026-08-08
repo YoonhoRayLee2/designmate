@@ -302,19 +302,62 @@ button {
 .chat-intro p {
   margin-bottom: 8px;
 }
-.chat-intro .hint {
+.intro-lead {
+  color: var(--text);
+  font-weight: 600;
+}
+/* Onboarding: numbered 3-step guide */
+.intro-steps {
+  list-style: none;
+  margin: 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.intro-steps li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.intro-steps strong {
+  color: var(--text);
+}
+.step-no {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--nh-green);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+.intro-tip {
   font-size: 12px;
   color: var(--text-dim);
   background: var(--nh-green-soft);
   padding: 8px 10px;
   border-radius: 8px;
 }
+.chips-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-top: 14px !important;
+  margin-bottom: 4px !important;
+}
 
 .chips {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 14px;
+  margin-top: 8px;
 }
 .chip {
   text-align: left;
@@ -358,6 +401,27 @@ button {
   font-size: 11px;
   color: var(--text-dim);
   margin-top: 4px;
+}
+/* A2: the design bubble whose version is currently on screen */
+.bubble.bot.active-version {
+  border-left: 3px solid var(--nh-green);
+}
+.version-btn {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 12px;
+}
+/* A2: banner shown when viewing an older (pinned) version */
+.version-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--nh-green-dark);
+  background: var(--nh-green-soft);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 16px;
 }
 .bubble.loading {
   color: var(--text-dim);
