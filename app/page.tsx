@@ -102,6 +102,10 @@ export default function Home() {
   // Phase 14: project dashboard overlay + export modal (both purely additive).
   const [dashboardOpen, setDashboardOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  // Phase 15: styled delete confirm, unified toast, project-load skeleton.
+  const [confirmDel, setConfirmDel] = useState<{ id: string; title: string } | null>(null);
+  const [toast, setToast] = useState('');
+  const [projectLoading, setProjectLoading] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -174,7 +178,10 @@ export default function Home() {
         if (saveTimer.current) clearTimeout(saveTimer.current);
         saveTimer.current = setTimeout(() => {
           saveProjectToServer(target).then((ok) => {
-            if (!ok) setUser(null); // session expired → back to AuthGate
+            if (!ok) {
+              showToast('세션이 만료되어 다시 로그인해 주세요');
+              setUser(null); // session expired → back to AuthGate
+            }
           });
         }, 600);
       }
@@ -384,15 +391,24 @@ export default function Home() {
     // Load turns lazily from the server if this summary hasn't been fetched yet.
     let detail = p.turns;
     if (!detail.length) {
+      setProjectLoading(true);
       detail = await fetchProjectDetail(id);
       setProjects((prev) => prev.map((x) => (x.id === id ? { ...x, turns: detail } : x)));
+      setProjectLoading(false);
     }
     setTurns(detail);
     setMobileView(detail.some((t) => t.kind === 'design') ? 'result' : 'chat');
   }
 
+  // Open the styled confirm modal (Phase 15).
   function deleteProject(id: string) {
-    if (!confirm('이 프로젝트를 삭제할까요?')) return;
+    const p = projects.find((x) => x.id === id);
+    setConfirmDel({ id, title: p?.title ?? '이 프로젝트' });
+  }
+
+  // Actually delete, after the user confirms in the modal.
+  function performDelete(id: string) {
+    setConfirmDel(null);
     fetch(`/api/projects/${id}`, { method: 'DELETE' }); // fire-and-forget; UI updates immediately
     setProjects((prev) => {
       const next = prev.filter((p) => p.id !== id);
@@ -401,6 +417,7 @@ export default function Home() {
         setActiveId(nextActive?.id ?? null);
         setTurns(nextActive?.turns ?? []);
       }
+      showToast('프로젝트를 삭제했어요');
       return next;
     });
   }
@@ -427,6 +444,12 @@ export default function Home() {
     navigator.clipboard?.writeText(text);
     setCopied(label);
     setTimeout(() => setCopied(''), 1500);
+  }
+
+  // Phase 15: a short floating toast for save/session/delete feedback.
+  function showToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(''), 2200);
   }
 
   // Phase 14: safe filename base from the active design's title.
@@ -746,7 +769,24 @@ export default function Home() {
                   </button>
                 </div>
               )}
-              {loading && streamHtml ? (
+              {projectLoading ? (
+                // Phase 15: skeleton while a project's detail loads.
+                <div className="skel" aria-hidden="true">
+                  <div className="skel-line w40" style={{ height: 26 }} />
+                  <div className="skel-line w62" />
+                  <div className="skel-row">
+                    <div className="skel-card" />
+                    <div className="skel-card" />
+                    <div className="skel-card" />
+                  </div>
+                  <div className="skel-block">
+                    <div className="skel-line w30" />
+                    <div className="skel-line w100" />
+                    <div className="skel-line w92" />
+                    <div className="skel-line w74" />
+                  </div>
+                </div>
+              ) : loading && streamHtml ? (
                 // Phase 9: live preview — the wireframe as it's being authored.
                 <div className="output-wire streaming" aria-live="polite">
                   <div className="stream-tag">✍️ 실시간으로 그리는 중…</div>
@@ -895,6 +935,35 @@ export default function Home() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Phase 15: styled delete confirmation */}
+      {confirmDel && (
+        <div className="modal-backdrop" onClick={() => setConfirmDel(null)}>
+          <div className="modal modal-sm" role="dialog" aria-label="삭제 확인" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <div className="modal-title">프로젝트를 삭제할까요?</div>
+              <div className="modal-sub">
+                “{confirmDel.title}” 프로젝트와 대화·정의서가 모두 삭제됩니다. 되돌릴 수 없어요.
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button className="btn-ghost" onClick={() => setConfirmDel(null)}>
+                취소
+              </button>
+              <button className="btn btn-danger" onClick={() => performDelete(confirmDel.id)}>
+                삭제
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Phase 15: floating toast */}
+      {toast && (
+        <div className="toast" role="status" aria-live="polite">
+          {toast}
         </div>
       )}
     </div>

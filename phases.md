@@ -458,3 +458,22 @@ NH농협 사내 화면 설계 도우미의 개선 작업을 시간순으로 누�
 - f 내보내기 모달: 2개 옵션+파일명(`designmate-조합원 대출 신청`)+닫기, download() 연동 ✓
 - g 모바일: 결과 탭 활성(그린)·정의서/컴포넌트 표 반응형 ✓
 - `lint`(0 warning)/`typecheck`/`build` 통과 ✓
+
+---
+
+## Phase 15 — UX 마감: 삭제 확인 모달 · 토스트 · 스켈레톤 (2026-08-09)
+
+**배경:** 리디자인 마감도를 올리는 소소한 UX 개선 묶음. 순수 additive, 기존 로직 무변경.
+
+### 변경 — `app/page.tsx`, `app/globals.css`
+
+- **삭제 확인 모달**: 브라우저 기본 `confirm()` → 스타일 모달(`.modal-sm`). `deleteProject`는 모달만 열고, `performDelete`가 실제 삭제(기존 fetch/상태 갱신 로직 그대로) + 삭제 토스트.
+- **토스트 통일**: `showToast()` + `.toast`(하단 플로팅). 삭제 성공·세션 만료 시 노출. 기존 "복사됨"(copied-toast)은 유지.
+- **로딩 스켈레톤**: 프로젝트 전환 시 상세 turns를 lazy fetch하는 동안 `projectLoading` → 결과 패널에 shimmer 스켈레톤(제목/카드/블록). fetch 완료 시 해제.
+
+### 검증 (prod 빌드 + 헤드리스 크롬)
+
+- 삭제 모달: rail ✕ → "프로젝트를 삭제할까요?"(프로젝트명·경고·취소/삭제(빨강)) 스크린샷 ✓
+- 토스트: 삭제 확정 → "프로젝트를 삭제했어요" 하단 토스트, 목록에서 제거 ✓
+- 스켈레톤: `projectLoading` 경로 렌더(타입/빌드 통과) ✓
+- `lint`(0 warning)/`typecheck`/`build` 통과 ✓

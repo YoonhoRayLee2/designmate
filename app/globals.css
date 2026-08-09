@@ -1205,7 +1205,110 @@ button {
 .modal-foot {
   display: flex;
   justify-content: flex-end;
+  gap: 9px;
   padding: 20px 26px 22px;
+}
+.modal-sm {
+  max-width: 400px;
+}
+.modal-sm .modal-sub {
+  line-height: 1.6;
+}
+.btn-danger {
+  background: var(--danger);
+}
+.btn-danger:hover {
+  background: #c44438;
+}
+
+/* ===================== Phase 15: 토스트 · 스켈레톤 ===================== */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 80;
+  background: var(--text);
+  color: #fff;
+  font-size: 13px;
+  padding: 11px 18px;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(20, 30, 15, 0.22);
+  animation: toast-in 0.18s ease;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* loading skeleton (project switch) */
+.skel {
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.skel-line {
+  height: 13px;
+  border-radius: 5px;
+  background: linear-gradient(90deg, #e9e8e0 25%, #f2f1ea 37%, #e9e8e0 63%);
+  background-size: 400% 100%;
+  animation: skel-shimmer 1.4s ease infinite;
+}
+.skel-line.w30 {
+  width: 30%;
+}
+.skel-line.w40 {
+  width: 40%;
+}
+.skel-line.w62 {
+  width: 62%;
+}
+.skel-line.w74 {
+  width: 74%;
+}
+.skel-line.w92 {
+  width: 92%;
+}
+.skel-line.w100 {
+  width: 100%;
+}
+.skel-row {
+  display: flex;
+  gap: 14px;
+  margin-top: 6px;
+}
+.skel-card {
+  flex: 1;
+  height: 78px;
+  border-radius: 11px;
+  background: linear-gradient(90deg, #e9e8e0 25%, #f2f1ea 37%, #e9e8e0 63%);
+  background-size: 400% 100%;
+  animation: skel-shimmer 1.4s ease infinite;
+}
+.skel-block {
+  margin-top: 6px;
+  padding: 18px;
+  border-radius: 11px;
+  background: var(--panel);
+  border: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+@keyframes skel-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0 0;
+  }
 }
 
 /* clarifying-question card */
