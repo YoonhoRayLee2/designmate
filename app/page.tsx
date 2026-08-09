@@ -407,9 +407,13 @@ export default function Home() {
   }
 
   // Actually delete, after the user confirms in the modal.
-  function performDelete(id: string) {
+  // Optimistic: remove from UI immediately, then roll back if the server rejects.
+  async function performDelete(id: string) {
     setConfirmDel(null);
-    fetch(`/api/projects/${id}`, { method: 'DELETE' }); // fire-and-forget; UI updates immediately
+    const prevProjects = projects;
+    const prevActiveId = activeId;
+    const prevTurns = turns;
+
     setProjects((prev) => {
       const next = prev.filter((p) => p.id !== id);
       if (id === activeId) {
@@ -417,9 +421,20 @@ export default function Home() {
         setActiveId(nextActive?.id ?? null);
         setTurns(nextActive?.turns ?? []);
       }
-      showToast('프로젝트를 삭제했어요');
       return next;
     });
+
+    try {
+      const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(String(res.status));
+      showToast('프로젝트를 삭제했어요');
+    } catch {
+      // Roll back the optimistic removal.
+      setProjects(prevProjects);
+      setActiveId(prevActiveId);
+      setTurns(prevTurns);
+      showToast('삭제에 실패했어요. 다시 시도해 주세요');
+    }
   }
 
   async function logout() {

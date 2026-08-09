@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { getEngine } from '@/lib/engine';
 import { EngineError } from '@/lib/engine/groqEngine';
 import { cacheKey, getCached, setCached } from '@/lib/engine/cache';
+import { checkRateLimit } from '@/lib/rateLimit';
 import type { ChatMessage, DesignSpec, StreamEvent } from '@/lib/engine/types';
 
 const MAX_IMAGES = 5;
@@ -27,7 +29,21 @@ function sanitizeSpec(raw: unknown): DesignSpec | undefined {
   return raw as DesignSpec;
 }
 
+export const dynamic = 'force-dynamic'; // reads cookies + streams; never static
+
 export async function POST(req: Request) {
+  // App-level rate limit (Phase 16): key by session, else client IP. Protects
+  // the free-tier LLM quota from runaway/abuse.
+  const rlKey =
+    cookies().get('dm_session')?.value || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'anon';
+  const rl = checkRateLimit(rlKey);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: '요청이 너무 잦아요. 잠시 후 다시 시도해 주세요.' },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } },
+    );
+  }
+
   let body: { messages?: unknown; currentSpec?: unknown; currentHtml?: unknown };
   try {
     body = await req.json();

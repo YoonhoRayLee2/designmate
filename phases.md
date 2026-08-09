@@ -477,3 +477,26 @@ NH농협 사내 화면 설계 도우미의 개선 작업을 시간순으로 누�
 - 토스트: 삭제 확정 → "프로젝트를 삭제했어요" 하단 토스트, 목록에서 제거 ✓
 - 스켈레톤: `projectLoading` 경로 렌더(타입/빌드 통과) ✓
 - `lint`(0 warning)/`typecheck`/`build` 통과 ✓
+
+---
+
+## Phase 16 — 헬스체크 + rate limit + 삭제 롤백 (2026-08-09)
+
+**배경:** 운영·안정성 잔손질. 보고서 관문 B5(가용성·남용방지) 일부를 앱 차원에서 처리.
+
+### 변경 — `app/api/health/route.ts`(신규), `lib/rateLimit.ts`(신규), `app/api/generate/route.ts`, `app/page.tsx`
+
+- **`/api/health`**: DB `SELECT 1`로 연결 확인 → `{ok, db, uptime}`. 정상 200 / DB 이상 503. 무인증, `force-dynamic`. Render 상태 모니터링용.
+- **rate limit**: `lib/rateLimit.ts` 인메모리 슬라이딩 윈도우(1분 12회, 세션 토큰→없으면 IP 키). `/api/generate` 본문 파싱 전에 체크, 초과 시 429 + `Retry-After`. 무료 LLM 쿼터 남용 방지. (단일 인스턴스 전제, 재시작 시 리셋 — cache.ts와 동일 모델.)
+- **삭제 롤백**: `performDelete`를 낙관적 업데이트 + await로 변경. DELETE 실패 시 projects/activeId/turns 원복 + "삭제에 실패했어요" 토스트. (기존 fire-and-forget → 정합성 개선.)
+
+### 검증
+
+- `/api/health` → `{"ok":true,"db":"up","uptime":1}` 200 실측 ✓
+- rate limit 로직: 동일 키 15회 → 12 허용/3 차단(429), 새 키 리셋 실측 ✓
+- 삭제 롤백: 낙관적 제거 후 실패 시 복원 경로(타입/빌드 통과) ✓
+- `lint`(0)/`typecheck`/`build` 통과, `/api/health` 라우트 등록 확인 ✓
+
+### 판단
+
+- PDF 내보내기: 의존성 지양 원칙 + 알파 범위 고려해 **이번엔 스킵**(MD/HTML 유지). 필요 시 브라우저 인쇄→PDF(의존성 0)로 후속 가능.
