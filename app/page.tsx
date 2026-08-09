@@ -434,321 +434,326 @@ export default function Home() {
 
   return (
     <div className="app">
-      <header className="app-header">
-        <div className="brand">
-          <button
-            className="brand-mark brand-mark-btn"
-            onClick={() => setDrawerOpen(true)}
-            aria-label="프로젝트 목록 열기"
-            title="프로젝트 목록"
-          >
+      {/* Left rail — always visible on desktop, slide-in drawer on mobile */}
+      {drawerOpen && <div className="rail-backdrop" onClick={() => setDrawerOpen(false)} />}
+      <aside className={`rail ${drawerOpen ? 'open' : ''}`} aria-label="프로젝트 목록">
+        <div className="rail-brand">
+          <span className="brand-mark" aria-hidden="true">
             NH
-          </button>
-          <div>
-            <h1>DesignMate</h1>
-            <p>NH농협 사내 화면 설계 도우미 · 요구사항을 대화로 다듬어 정의서와 와이어프레임을 만듭니다.</p>
-          </div>
-        </div>
-        <div className="head-actions">
-          <button className="btn-ghost" onClick={() => setDrawerOpen(true)}>
-            ☰ 프로젝트{projects.length ? ` (${projects.length})` : ''}
-          </button>
-          <button className="btn-ghost" onClick={newProject}>
-            + 새 대화
-          </button>
-          <span className="user-chip" title={user.username}>
-            {user.username}
           </span>
-          <button className="btn-ghost" onClick={logout}>
-            로그아웃
+          <span className="rail-brandname">DesignMate</span>
+        </div>
+        <div className="rail-newwrap">
+          <button className="rail-new" onClick={newProject}>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M7 2.5v9M2.5 7h9" />
+            </svg>
+            새 대화
           </button>
         </div>
-      </header>
-
-      {drawerOpen && (
-        <>
-          <div className="drawer-backdrop" onClick={() => setDrawerOpen(false)} />
-          <aside className="drawer" role="dialog" aria-label="프로젝트 목록">
-            <div className="drawer-head">
-              <h2>프로젝트</h2>
-              <button className="btn-ghost" onClick={() => setDrawerOpen(false)} aria-label="닫기">
+        <div className="rail-label">최근 프로젝트</div>
+        <div className="rail-list">
+          {projects.length === 0 && <div className="rail-empty">아직 저장된 프로젝트가 없어요.</div>}
+          {projects.map((p) => (
+            <div key={p.id} className={`rail-item ${p.id === activeId ? 'active' : ''}`}>
+              <button className="rail-item-main" onClick={() => switchProject(p.id)}>
+                <span className="rail-item-title">{p.title}</span>
+                <span className="rail-item-time">{new Date(p.updatedAt).toLocaleString('ko-KR')}</span>
+              </button>
+              <button className="rail-item-del" onClick={() => deleteProject(p.id)} aria-label="삭제">
                 ✕
               </button>
             </div>
-            <button className="drawer-new" onClick={newProject}>
-              + 새 대화 시작
-            </button>
-            <div className="drawer-list">
-              {projects.length === 0 && <div className="drawer-empty">아직 저장된 프로젝트가 없어요.</div>}
-              {projects.map((p) => (
-                <div key={p.id} className={`drawer-item ${p.id === activeId ? 'active' : ''}`}>
-                  <button className="drawer-item-main" onClick={() => switchProject(p.id)}>
-                    <span className="drawer-item-title">{p.title}</span>
-                    <span className="drawer-item-time">{new Date(p.updatedAt).toLocaleString('ko-KR')}</span>
-                  </button>
-                  <button className="drawer-item-del" onClick={() => deleteProject(p.id)} aria-label="삭제">
-                    ✕
-                  </button>
-                </div>
-              ))}
+          ))}
+        </div>
+        <div className="rail-foot">
+          <span className="rail-avatar" aria-hidden="true">
+            {user.username.slice(0, 2)}
+          </span>
+          <span className="rail-user" title={user.username}>
+            {user.username}
+          </span>
+          <button className="rail-logout" onClick={logout}>
+            로그아웃
+          </button>
+        </div>
+      </aside>
+
+      <div className="main">
+        {/* Slim mobile top bar (hidden on desktop) */}
+        <div className="mobile-top">
+          <button className="mobile-menu" onClick={() => setDrawerOpen(true)} aria-label="메뉴 열기">
+            ☰
+          </button>
+          <span className="mobile-title">DesignMate</span>
+          <button className="mobile-newbtn" onClick={newProject} aria-label="새 대화">
+            ＋
+          </button>
+        </div>
+
+        {/* Mobile-only segmented toggle: choose which panel fills the screen. */}
+        <div className="mobile-tabs" role="tablist" aria-label="화면 전환">
+          <button
+            role="tab"
+            aria-selected={mobileView === 'chat'}
+            className={`mobile-tab ${mobileView === 'chat' ? 'on' : ''}`}
+            onClick={() => setMobileView('chat')}
+          >
+            대화
+          </button>
+          <button
+            role="tab"
+            aria-selected={mobileView === 'result'}
+            className={`mobile-tab ${mobileView === 'result' ? 'on' : ''}`}
+            onClick={() => setMobileView('result')}
+            disabled={!latestResult}
+          >
+            결과
+          </button>
+        </div>
+
+        <div className={`results mobile-${mobileView}`}>
+          <section className="panel chat-panel">
+            <div className="panel-head">
+              <h2>대화</h2>
             </div>
-          </aside>
-        </>
-      )}
+            <div className="panel-body chat-thread" ref={threadRef}>
+              {!started && (
+                <div className="chat-intro">
+                  <p className="intro-lead">어떤 화면이 필요하신가요? 만들고 싶은 업무 화면을 설명해 주세요.</p>
 
-      {/* Mobile-only segmented toggle: choose which panel fills the screen. */}
-      <div className="mobile-tabs" role="tablist" aria-label="화면 전환">
-        <button
-          role="tab"
-          aria-selected={mobileView === 'chat'}
-          className={`mobile-tab ${mobileView === 'chat' ? 'on' : ''}`}
-          onClick={() => setMobileView('chat')}
-        >
-          대화
-        </button>
-        <button
-          role="tab"
-          aria-selected={mobileView === 'result'}
-          className={`mobile-tab ${mobileView === 'result' ? 'on' : ''}`}
-          onClick={() => setMobileView('result')}
-          disabled={!latestResult}
-        >
-          결과
-        </button>
-      </div>
+                  <ol className="intro-steps">
+                    <li>
+                      <span className="step-no">1</span>
+                      <span>
+                        <strong>요구사항을 적어요.</strong> 예시처럼 한 줄이면 충분하고, 정보가 부족하면 제가 먼저 몇
+                        가지를 여쭤봐요.
+                      </span>
+                    </li>
+                    <li>
+                      <span className="step-no">2</span>
+                      <span>
+                        <strong>정의서 + 와이어프레임</strong>이 오른쪽에 함께 나와요. (📎로 참고 이미지를 첨부하면 그
+                        느낌을 반영합니다.)
+                      </span>
+                    </li>
+                    <li>
+                      <span className="step-no">3</span>
+                      <span>
+                        <strong>이어서 대화로 다듬어요.</strong> “지점 필터 추가”, “승인 버튼 넣어줘”처럼 계속 요청하면
+                        누적 반영되고, 이전 버전으로 되돌릴 수도 있어요.
+                      </span>
+                    </li>
+                  </ol>
 
-      <div className={`results mobile-${mobileView}`}>
-        <section className="panel chat-panel">
-          <div className="panel-head">
-            <h2>대화</h2>
-          </div>
-          <div className="panel-body chat-thread" ref={threadRef}>
-            {!started && (
-              <div className="chat-intro">
-                <p className="intro-lead">어떤 화면이 필요하신가요? 만들고 싶은 업무 화면을 설명해 주세요.</p>
+                  <p className="intro-tip">
+                    💡 <strong>팁:</strong> 사용 주체(영업점 직원/조합원 등), 목적, 꼭 필요한 항목을 함께 적으면 훨씬
+                    정확해요.
+                  </p>
 
-                <ol className="intro-steps">
-                  <li>
-                    <span className="step-no">1</span>
-                    <span>
-                      <strong>요구사항을 적어요.</strong> 예시처럼 한 줄이면 충분하고, 정보가 부족하면 제가 먼저 몇
-                      가지를 여쭤봐요.
-                    </span>
-                  </li>
-                  <li>
-                    <span className="step-no">2</span>
-                    <span>
-                      <strong>정의서 + 와이어프레임</strong>이 오른쪽에 함께 나와요. (📎로 참고 이미지를 첨부하면 그
-                      느낌을 반영합니다.)
-                    </span>
-                  </li>
-                  <li>
-                    <span className="step-no">3</span>
-                    <span>
-                      <strong>이어서 대화로 다듬어요.</strong> “지점 필터 추가”, “승인 버튼 넣어줘”처럼 계속 요청하면
-                      누적 반영되고, 이전 버전으로 되돌릴 수도 있어요.
-                    </span>
-                  </li>
-                </ol>
-
-                <p className="intro-tip">
-                  💡 <strong>팁:</strong> 사용 주체(영업점 직원/조합원 등), 목적, 꼭 필요한 항목을 함께 적으면 훨씬
-                  정확해요.
-                </p>
-
-                <p className="chips-label">이렇게 시작해 보세요</p>
-                <div className="chips">
-                  {EXAMPLES.map((ex) => (
-                    <button key={ex} type="button" className="chip" onClick={() => sendText(ex)}>
-                      {ex}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {turns.map((t, i) => {
-              if (t.kind === 'user')
-                return (
-                  <div key={i} className="bubble user">
-                    {t.images && t.images.length > 0 && (
-                      <div className="bubble-imgs">
-                        {t.images.map((src, j) => (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img key={j} src={src} alt="첨부" />
-                        ))}
-                      </div>
-                    )}
-                    {t.content}
-                  </div>
-                );
-              if (t.kind === 'design') {
-                // Version number of this design among all design turns (1-based).
-                const versionNo = designTurns.findIndex((d) => d.i === i) + 1;
-                const isActive = activeDesign?.i === i;
-                const isMultiVersion = designTurns.length > 1;
-                return (
-                  <div key={i} className={`bubble bot ${isActive ? 'active-version' : ''}`}>
-                    <strong>{t.result.spec.title}</strong> 화면을 만들었어요.
-                    <span className="meta">
-                      {t.result.spec.screenType} · {t.result.spec.domain}
-                      {isMultiVersion && ` · 버전 ${versionNo}/${designTurns.length}`}
-                    </span>
-                    {isMultiVersion && (
-                      <button
-                        type="button"
-                        className="inline-link version-btn"
-                        disabled={loading || isActive}
-                        onClick={() => {
-                          setPinnedTurn(i);
-                          setMobileView('result');
-                        }}
-                      >
-                        {isActive ? '현재 보는 버전' : '이 버전 보기'}
+                  <p className="chips-label">이렇게 시작해 보세요</p>
+                  <div className="chips">
+                    {EXAMPLES.map((ex) => (
+                      <button key={ex} type="button" className="chip" onClick={() => sendText(ex)}>
+                        {ex}
                       </button>
-                    )}
+                    ))}
                   </div>
+                </div>
+              )}
+
+              {turns.map((t, i) => {
+                if (t.kind === 'user')
+                  return (
+                    <div key={i} className="bubble user">
+                      {t.images && t.images.length > 0 && (
+                        <div className="bubble-imgs">
+                          {t.images.map((src, j) => (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img key={j} src={src} alt="첨부" />
+                          ))}
+                        </div>
+                      )}
+                      {t.content}
+                    </div>
+                  );
+                if (t.kind === 'design') {
+                  // Version number of this design among all design turns (1-based).
+                  const versionNo = designTurns.findIndex((d) => d.i === i) + 1;
+                  const isActive = activeDesign?.i === i;
+                  const isMultiVersion = designTurns.length > 1;
+                  return (
+                    <div key={i} className={`bubble bot ${isActive ? 'active-version' : ''}`}>
+                      <strong>{t.result.spec.title}</strong> 화면을 만들었어요.
+                      <span className="meta">
+                        {t.result.spec.screenType} · {t.result.spec.domain}
+                        {isMultiVersion && ` · 버전 ${versionNo}/${designTurns.length}`}
+                      </span>
+                      {isMultiVersion && (
+                        <button
+                          type="button"
+                          className="inline-link version-btn"
+                          disabled={loading || isActive}
+                          onClick={() => {
+                            setPinnedTurn(i);
+                            setMobileView('result');
+                          }}
+                        >
+                          {isActive ? '현재 보는 버전' : '이 버전 보기'}
+                        </button>
+                      )}
+                    </div>
+                  );
+                }
+                return (
+                  <QuestionCard
+                    key={i}
+                    questions={t.questions}
+                    disabled={loading || !!t.answered}
+                    onSubmit={(answers) => submitAnswers(i, answers)}
+                  />
                 );
-              }
-              return (
-                <QuestionCard
-                  key={i}
-                  questions={t.questions}
-                  disabled={loading || !!t.answered}
-                  onSubmit={(answers) => submitAnswers(i, answers)}
-                />
-              );
-            })}
+              })}
 
-            {loading && (
-              <div className="bubble bot loading" role="status" aria-live="polite">
-                {streamStatus || '생각 중…'}
-                <button type="button" className="inline-link" onClick={cancel}>
-                  취소
-                </button>
-              </div>
-            )}
-            {error && (
-              <div className="error" role="alert">
-                {error}
-                {lastFailed && (
-                  <button type="button" className="inline-link" onClick={retry} disabled={loading}>
-                    다시 시도
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-
-          {pendingImages.length > 0 && (
-            <div className="attach-tray">
-              {pendingImages.map((src, i) => (
-                <div key={i} className="attach-thumb">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={src} alt="첨부 미리보기" />
-                  <button type="button" onClick={() => removeImage(i)} aria-label="제거">
-                    ×
+              {loading && (
+                <div className="bubble bot loading" role="status" aria-live="polite">
+                  {streamStatus || '생각 중…'}
+                  <button type="button" className="inline-link" onClick={cancel}>
+                    취소
                   </button>
                 </div>
-              ))}
+              )}
+              {error && (
+                <div className="error" role="alert">
+                  {error}
+                  {lastFailed && (
+                    <button type="button" className="inline-link" onClick={retry} disabled={loading}>
+                      다시 시도
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
-          )}
-          <form className="chat-form" onSubmit={onSubmit}>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              multiple
-              hidden
-              onChange={(e) => addImages(e.target.files)}
-            />
-            <button
-              type="button"
-              className="attach-btn"
-              onClick={() => fileRef.current?.click()}
-              disabled={loading || pendingImages.length >= MAX_IMAGES}
-              title="레퍼런스 이미지 첨부"
-              aria-label="레퍼런스 이미지 첨부"
-            >
-              📎
-            </button>
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={onKeyDown}
-              aria-label="요구사항 입력"
-              placeholder={
-                started
-                  ? '수정/추가 요청을 입력하세요 (⌘/Ctrl + Enter)'
-                  : '예: 조합원 대출 신청 화면 만들어줘 (⌘/Ctrl + Enter)'
-              }
-            />
-            <button className="btn" type="submit" disabled={loading}>
-              {loading ? '…' : '보내기'}
-            </button>
-          </form>
-        </section>
 
-        <section className="panel result-panel">
-          <div className="panel-head">
-            <h2>정의서 &amp; 와이어프레임</h2>
-            {latestResult && (
-              <div className="head-actions">
-                {copied && <span className="copied-toast">{copied} 복사됨</span>}
-                <button className="btn-ghost" onClick={() => copy(latestResult.specMarkdown, '정의서')}>
-                  정의서 복사
-                </button>
-                <button className="btn-ghost" onClick={() => copy(latestResult.wireframeHtml, 'HTML')}>
-                  HTML 복사
-                </button>
-                <button
-                  className="btn-ghost"
-                  onClick={() => download('designmate-정의서.md', latestResult.specMarkdown, 'text/markdown')}
-                >
-                  정의서 ↓
-                </button>
-                <button
-                  className="btn-ghost"
-                  onClick={() => download('designmate-wireframe.html', latestResult.wireframeHtml, 'text/html')}
-                >
-                  HTML ↓
-                </button>
+            {pendingImages.length > 0 && (
+              <div className="attach-tray">
+                {pendingImages.map((src, i) => (
+                  <div key={i} className="attach-thumb">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={src} alt="첨부 미리보기" />
+                    <button type="button" onClick={() => removeImage(i)} aria-label="제거">
+                      ×
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
-          </div>
-          <div className="panel-body output-body">
-            {pinnedTurn !== null && activeDesign?.i !== designTurns[designTurns.length - 1]?.i && (
-              <div className="version-banner" role="status">
-                이전 버전을 보고 있어요. 이대로 수정 요청하면 이 버전을 기준으로 이어집니다.
-                <button type="button" className="inline-link" onClick={() => setPinnedTurn(null)}>
-                  최신 버전으로
-                </button>
-              </div>
-            )}
-            {loading && streamHtml ? (
-              // Phase 9: live preview — the wireframe as it's being authored.
-              <div className="output-wire streaming" aria-live="polite">
-                <div className="stream-tag">✍️ 실시간으로 그리는 중…</div>
-                <WireframePreview html={streamHtml} />
-              </div>
-            ) : latestResult ? (
-              <div className="output-split">
-                <div className="output-spec">
-                  <SpecPanel markdown={latestResult.specMarkdown} />
+            <form className="chat-form" onSubmit={onSubmit}>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                multiple
+                hidden
+                onChange={(e) => addImages(e.target.files)}
+              />
+              <button
+                type="button"
+                className="attach-btn"
+                onClick={() => fileRef.current?.click()}
+                disabled={loading || pendingImages.length >= MAX_IMAGES}
+                title="레퍼런스 이미지 첨부"
+                aria-label="레퍼런스 이미지 첨부"
+              >
+                📎
+              </button>
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={onKeyDown}
+                aria-label="요구사항 입력"
+                placeholder={
+                  started
+                    ? '수정/추가 요청을 입력하세요 (⌘/Ctrl + Enter)'
+                    : '예: 조합원 대출 신청 화면 만들어줘 (⌘/Ctrl + Enter)'
+                }
+              />
+              <button className="btn" type="submit" disabled={loading}>
+                {loading ? '…' : '보내기'}
+              </button>
+            </form>
+          </section>
+
+          <section className="panel result-panel">
+            <div className="panel-head">
+              <h2>정의서 &amp; 와이어프레임</h2>
+              {latestResult && (
+                <div className="head-actions">
+                  {copied && <span className="copied-toast">{copied} 복사됨</span>}
+                  <button className="btn-ghost" onClick={() => copy(latestResult.specMarkdown, '정의서')}>
+                    정의서 복사
+                  </button>
+                  <button className="btn-ghost" onClick={() => copy(latestResult.wireframeHtml, 'HTML')}>
+                    HTML 복사
+                  </button>
+                  <button
+                    className="btn-ghost"
+                    onClick={() => download('designmate-정의서.md', latestResult.specMarkdown, 'text/markdown')}
+                  >
+                    정의서 ↓
+                  </button>
+                  <button
+                    className="btn-ghost"
+                    onClick={() => download('designmate-wireframe.html', latestResult.wireframeHtml, 'text/html')}
+                  >
+                    HTML ↓
+                  </button>
                 </div>
-                <div className="output-wire">
-                  <WireframePreview html={latestResult.wireframeHtml} />
+              )}
+            </div>
+            <div className="panel-body output-body">
+              {pinnedTurn !== null && activeDesign?.i !== designTurns[designTurns.length - 1]?.i && (
+                <div className="version-banner" role="status">
+                  이전 버전을 보고 있어요. 이대로 수정 요청하면 이 버전을 기준으로 이어집니다.
+                  <button type="button" className="inline-link" onClick={() => setPinnedTurn(null)}>
+                    최신 버전으로
+                  </button>
                 </div>
-              </div>
-            ) : (
-              <div className="empty">
-                왼쪽에서 요구사항을 입력하면
-                <br />
-                정의서와 와이어프레임이 여기에 표시됩니다.
-              </div>
-            )}
-          </div>
-        </section>
+              )}
+              {loading && streamHtml ? (
+                // Phase 9: live preview — the wireframe as it's being authored.
+                <div className="output-wire streaming" aria-live="polite">
+                  <div className="stream-tag">✍️ 실시간으로 그리는 중…</div>
+                  <WireframePreview html={streamHtml} />
+                </div>
+              ) : latestResult ? (
+                <div className="output-split">
+                  <div className="output-spec">
+                    <SpecPanel markdown={latestResult.specMarkdown} />
+                  </div>
+                  <div className="output-wire">
+                    <WireframePreview html={latestResult.wireframeHtml} />
+                  </div>
+                </div>
+              ) : (
+                <div className="empty">
+                  왼쪽에서 요구사항을 입력하면
+                  <br />
+                  정의서와 와이어프레임이 여기에 표시됩니다.
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
       </div>
     </div>
   );
