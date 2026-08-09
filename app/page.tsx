@@ -99,6 +99,9 @@ export default function Home() {
   const [pinnedTurn, setPinnedTurn] = useState<number | null>(null);
   // Auth: null = not logged in, undefined = still checking (show nothing yet).
   const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
+  // Phase 14: project dashboard overlay + export modal (both purely additive).
+  const [dashboardOpen, setDashboardOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -426,6 +429,18 @@ export default function Home() {
     setTimeout(() => setCopied(''), 1500);
   }
 
+  // Phase 14: safe filename base from the active design's title.
+  function exportBase(): string {
+    const title = latestResult?.spec.title?.trim() || '화면';
+    const safe = title.replace(/[\\/:*?"<>|]/g, '').slice(0, 40);
+    return `designmate-${safe}`;
+  }
+  // Open a project from the dashboard (reuses existing switchProject).
+  function openFromDashboard(id: string) {
+    setDashboardOpen(false);
+    switchProject(id);
+  }
+
   const started = turns.length > 0;
 
   // Auth gating: nothing while checking, login screen when logged out.
@@ -460,7 +475,18 @@ export default function Home() {
             새 대화
           </button>
         </div>
-        <div className="rail-label">최근 프로젝트</div>
+        <div className="rail-label">
+          <span>최근 프로젝트</span>
+          <button
+            className="rail-label-btn"
+            onClick={() => {
+              setDashboardOpen(true);
+              setDrawerOpen(false);
+            }}
+          >
+            전체 보기
+          </button>
+        </div>
         <div className="rail-list">
           {projects.length === 0 && <div className="rail-empty">아직 저장된 프로젝트가 없어요.</div>}
           {projects.map((p) => (
@@ -705,17 +731,8 @@ export default function Home() {
                   <button className="btn-ghost" onClick={() => copy(latestResult.wireframeHtml, 'HTML')}>
                     HTML 복사
                   </button>
-                  <button
-                    className="btn-ghost"
-                    onClick={() => download('designmate-정의서.md', latestResult.specMarkdown, 'text/markdown')}
-                  >
-                    정의서 ↓
-                  </button>
-                  <button
-                    className="btn-ghost"
-                    onClick={() => download('designmate-wireframe.html', latestResult.wireframeHtml, 'text/html')}
-                  >
-                    HTML ↓
+                  <button className="btn-ghost btn-ghost-accent" onClick={() => setExportOpen(true)}>
+                    내보내기
                   </button>
                 </div>
               )}
@@ -755,6 +772,131 @@ export default function Home() {
           </section>
         </div>
       </div>
+
+      {/* Phase 14 (e): 프로젝트 대시보드 오버레이 */}
+      {dashboardOpen && (
+        <div className="dash" role="dialog" aria-label="프로젝트 목록">
+          <div className="dash-head">
+            <span className="dash-head-title">프로젝트</span>
+            <div className="dash-head-actions">
+              <button
+                className="btn"
+                onClick={() => {
+                  setDashboardOpen(false);
+                  newProject();
+                }}
+              >
+                + 새 대화
+              </button>
+              <button className="btn-ghost" onClick={() => setDashboardOpen(false)} aria-label="닫기">
+                ✕
+              </button>
+            </div>
+          </div>
+          <div className="dash-body">
+            <h2 className="dash-title">내 프로젝트</h2>
+            <p className="dash-sub">최근 순으로 정렬됩니다. 카드를 열면 대화와 정의서가 그대로 이어집니다.</p>
+            <div className="dash-stats">
+              <div>
+                <div className="dash-stat-num">{projects.length}</div>
+                <div className="dash-stat-lbl">전체 프로젝트</div>
+              </div>
+              <div className="dash-stat-div" />
+              <div>
+                <div className="dash-stat-num">
+                  {projects.filter((p) => Date.now() - p.updatedAt < 7 * 864e5).length}
+                </div>
+                <div className="dash-stat-lbl">이번 주</div>
+              </div>
+            </div>
+            <div className="dash-grid">
+              {projects.map((p) => (
+                <div key={p.id} className="dash-card" onClick={() => openFromDashboard(p.id)}>
+                  <div className="dash-card-title">{p.title}</div>
+                  <div className="dash-card-time">{new Date(p.updatedAt).toLocaleString('ko-KR')}</div>
+                  <button
+                    className="dash-card-del"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteProject(p.id);
+                    }}
+                    aria-label="삭제"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button
+                className="dash-card dash-card-new"
+                onClick={() => {
+                  setDashboardOpen(false);
+                  newProject();
+                }}
+              >
+                <span className="dash-plus" aria-hidden="true">
+                  ＋
+                </span>
+                새 화면 만들기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Phase 14 (f): 내보내기 모달 — 기존 download/copy 액션 재사용 */}
+      {exportOpen && latestResult && (
+        <div className="modal-backdrop" onClick={() => setExportOpen(false)}>
+          <div className="modal" role="dialog" aria-label="내보내기" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <div className="modal-title">내보내기</div>
+              <div className="modal-sub">{latestResult.spec.title}</div>
+            </div>
+            <div className="modal-opts">
+              <button
+                className="modal-opt"
+                onClick={() => {
+                  download(`${exportBase()}-정의서.md`, latestResult.specMarkdown, 'text/markdown');
+                  setExportOpen(false);
+                }}
+              >
+                <span className="modal-opt-ic" aria-hidden="true">
+                  📄
+                </span>
+                <span className="modal-opt-main">
+                  <span className="modal-opt-name">UI/UX 정의서</span>
+                  <span className="modal-opt-desc">Markdown (.md)</span>
+                </span>
+                <span className="modal-opt-dl">내려받기</span>
+              </button>
+              <button
+                className="modal-opt"
+                onClick={() => {
+                  download(`${exportBase()}-wireframe.html`, latestResult.wireframeHtml, 'text/html');
+                  setExportOpen(false);
+                }}
+              >
+                <span className="modal-opt-ic" aria-hidden="true">
+                  🖥️
+                </span>
+                <span className="modal-opt-main">
+                  <span className="modal-opt-name">와이어프레임 HTML</span>
+                  <span className="modal-opt-desc">단일 파일 · 개발 인수인계용</span>
+                </span>
+                <span className="modal-opt-dl">내려받기</span>
+              </button>
+            </div>
+            <div className="modal-file">
+              <span>파일명</span>
+              <code>{exportBase()}</code>
+            </div>
+            <div className="modal-foot">
+              <button className="btn-ghost" onClick={() => setExportOpen(false)}>
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
