@@ -77,8 +77,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ## 스택
 
-- **Next.js 14 (App Router) + TypeScript**, 앱 루트는 `designmate-app/`
-- 별도 UI 라이브러리·상태관리·마크다운 라이브러리 없음 — 의존성은 `next`/`react`만
+- **Next.js 14 (App Router) + TypeScript**, 앱 루트는 `designmate-app/`. **Node 22+**(`node:sqlite` 내장 사용).
+- 별도 UI 라이브러리·상태관리·마크다운·DB·인증 라이브러리 없음 — 런타임 의존성은 `next`/`react`만 (SQLite는 Node 내장 `node:sqlite`, 해싱·세션은 내장 `crypto`)
 - 실행: `npm run dev` (개발), `npm run build && npm start` (프로덕션, `PORT` 자동)
 
 ## 구조
@@ -86,24 +86,30 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ```
 designmate-app/
 ├── app/
-│   ├── page.tsx                # 입력창 + 정의서/와이어프레임 2분할 뷰 (클라이언트 컴포넌트)
-│   ├── layout.tsx, globals.css # 루트 레이아웃 + 앱 스타일(다크 UI)
-│   └── api/generate/route.ts   # POST { prompt } → { spec, wireframeHtml, specMarkdown }
+│   ├── page.tsx                # 로그인 게이트 + 입력창 + 정의서/와이어프레임 2분할 뷰 (클라)
+│   ├── layout.tsx, globals.css # 루트 레이아웃 + 앱 스타일
+│   ├── api/generate/route.ts   # POST { messages } → { spec, wireframeHtml, specMarkdown } (SSE)
+│   ├── api/auth/…              # register/login/logout/me (자체 ID/PW 세션)
+│   └── api/projects/…          # GET 목록 / [id] GET·PUT·DELETE (계정별 소유권 WHERE user_id)
 ├── lib/
+│   ├── db.ts                   # node:sqlite 싱글턴 + 스키마 부트스트랩 (globalThis 캐싱)
+│   ├── auth.ts                 # scrypt 해싱 + DB 세션(httpOnly 쿠키) + getSessionUser
+│   ├── projects.ts             # 계정 스코프 프로젝트 CRUD (turns는 turns_json blob)
 │   ├── engine/
-│   │   ├── types.ts            # DesignEngine 인터페이스, DesignSpec/GenerateResult 타입
-│   │   ├── groqEngine.ts       # Groq(OpenAI 호환) 호출 → JSON spec+html
-│   │   ├── ruleEngine.ts       # 오프라인 폴백: 키워드 → 화면유형/도메인 + 템플릿
+│   │   ├── types.ts            # DesignEngine 인터페이스, DesignSpec/GenerateResult/StreamEvent
+│   │   ├── groqEngine.ts       # Groq(OpenAI 호환) → spec+html (스트리밍/국소수정)
+│   │   ├── ruleEngine.ts       # 오프라인 폴백: 키워드 → 화면유형/NH도메인 + 템플릿
+│   │   ├── cache.ts            # 동일요청 인메모리 LRU (DB 무관)
 │   │   └── index.ts            # getEngine() ← GROQ_API_KEY 유무로 엔진 선택 (단일 스왑 지점)
-│   ├── templates/              # 화면유형별 HTML/CSS 목업 생성기
-│   │   ├── shared.ts           # wf.* 프리미티브 + wrapDocument() (와이어프레임 스타일)
-│   │   └── list/detail/form/dashboard/auth.ts
+│   ├── templates/              # 화면유형별 HTML/CSS 목업 생성기 (list…report 8종)
+│   ├── designTokens.ts         # NH 디자인 토큰 SSOT
 │   ├── spec.ts                 # DesignSpec → 정의서 마크다운
 │   └── markdown.ts             # 정의서 마크다운 → HTML (경량 렌더러, 범용 아님)
-└── components/
-    ├── SpecPanel.tsx           # 정의서 렌더 (markdownToHtml)
-    └── WireframePreview.tsx    # 와이어프레임을 iframe srcDoc(sandbox)로 격리 렌더
+├── components/                 # SpecPanel, WireframePreview, AuthGate
+└── data/                       # (gitignore) SQLite 파일
 ```
+
+**저장/인증 원칙**: 모든 영속 데이터는 서버 SQLite(`lib/db.ts`). 프로젝트는 로그인 계정 소유이며 route에서 `getSessionUser()` + SQL `WHERE user_id`로 항상 소유권 강제. DB/쿠키를 만지는 route는 `export const dynamic = 'force-dynamic'`(빌드 시 정적 수집 방지). 알파 수준 — 정식 출시엔 SSO·rate limit·감사 별도.
 
 ## 핵심 원칙 (변경 금지)
 

@@ -3,12 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import SpecPanel from '@/components/SpecPanel';
 import WireframePreview from '@/components/WireframePreview';
+import AuthGate, { type AuthUser } from '@/components/AuthGate';
 import type { ChatMessage, ClarifyingQuestion, EngineOutput, GenerateResult, StreamEvent } from '@/lib/engine/types';
-
-const STORAGE_KEY = 'designmate.projects.v1';
-const LEGACY_KEY = 'designmate.session.v2';
-const MAX_STORED_TURNS = 40;
-const MAX_PROJECTS = 30;
 
 const EXAMPLES = [
   '조합원 대출 신청 화면',
@@ -40,12 +36,7 @@ interface Project {
   updatedAt: number;
 }
 
-interface Store {
-  projects: Project[];
-  activeId: string | null;
-}
-
-// Simple id, collision-safe enough for a single browser's local storage.
+// Simple client-generated id (server stores it as the project primary key).
 function newId(): string {
   return `p_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`;
 }
@@ -56,27 +47,7 @@ function deriveProjectTitle(turns: Turn[]): string {
   return firstDesign?.result.spec.title?.trim() || '새 프로젝트';
 }
 
-function loadStore(): Store {
-  if (typeof window === 'undefined') return { projects: [], activeId: null };
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as Store;
-    // Migrate a legacy single session into the first project.
-    const legacy = localStorage.getItem(LEGACY_KEY);
-    if (legacy) {
-      const { turns } = JSON.parse(legacy) as { turns: Turn[] };
-      if (turns?.length) {
-        const p: Project = { id: newId(), title: deriveProjectTitle(turns), turns, updatedAt: Date.now() };
-        return { projects: [p], activeId: p.id };
-      }
-    }
-  } catch {
-    /* ignore corrupt storage */
-  }
-  return { projects: [], activeId: null };
-}
-
-/** Drop base64 images before persisting — they blow past the localStorage quota. */
+/** Strip base64 images before sending to the server — they bloat the payload and aren't persisted. */
 function turnForStorage(t: Turn): Turn {
   if (t.kind === 'user' && t.images) {
     const { images, ...rest } = t;
@@ -86,32 +57,14 @@ function turnForStorage(t: Turn): Turn {
   return t;
 }
 
-/** Persist the whole store, trimming turns/projects if the quota is exceeded. */
-function persistStore(store: Store) {
-  let projects = store.projects.slice(0, MAX_PROJECTS).map((p) => ({
-    ...p,
-    turns: p.turns.slice(-MAX_STORED_TURNS).map(turnForStorage),
-  }));
-  for (let attempt = 0; attempt < 6; attempt++) {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ projects, activeId: store.activeId }));
-      return;
-    } catch {
-      // Shed the oldest project first; if only the active one remains, trim its turns.
-      if (projects.length > 1) {
-        projects = projects.slice(0, -1);
-      } else if (projects[0] && projects[0].turns.length > 2) {
-        projects = [{ ...projects[0], turns: projects[0].turns.slice(Math.ceil(projects[0].turns.length / 2)) }];
-      } else {
-        try {
-          localStorage.removeItem(STORAGE_KEY);
-        } catch {
-          /* give up silently */
-        }
-        return;
-      }
-    }
-  }
+/** Save one project to the server. Returns false on auth failure so the caller can re-gate. */
+async function saveProjectToServer(p: Project): Promise<boolean> {
+  const res = await fetch(`/api/projects/${p.id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: p.title, turns: p.turns.map(turnForStorage), updatedAt: p.updatedAt }),
+  });
+  return res.ok || res.status !== 401;
 }
 
 function download(filename: string, content: string, mime: string) {
@@ -144,26 +97,58 @@ export default function Home() {
   // A2: when the user pins an earlier version, the result panel shows that turn
   // instead of the latest. Cleared on any new generation. Stored as a turn index.
   const [pinnedTurn, setPinnedTurn] = useState<number | null>(null);
+  // Auth: null = not logged in, undefined = still checking (show nothing yet).
+  const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
   const threadRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const hydrated = useRef(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load projects on mount; open the most recent (or start empty).
+  // On mount: check session, then load the user's projects from the server.
   useEffect(() => {
-    const store = loadStore();
-    setProjects(store.projects);
-    const active = store.projects.find((p) => p.id === store.activeId) ?? store.projects[0] ?? null;
-    if (active) {
-      setActiveId(active.id);
-      setTurns(active.turns);
-    }
-    hydrated.current = true;
+    (async () => {
+      try {
+        const meRes = await fetch('/api/auth/me');
+        const me = (await meRes.json()) as { user: AuthUser | null };
+        setUser(me.user);
+        if (me.user) await loadProjectsFromServer();
+      } catch {
+        setUser(null);
+      } finally {
+        hydrated.current = true;
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Persist whenever turns change: fold current turns into the active project.
+  // Load the project list (summaries) and open the most recent one's detail.
+  async function loadProjectsFromServer() {
+    const res = await fetch('/api/projects');
+    if (!res.ok) return;
+    const data = (await res.json()) as { projects: { id: string; title: string; updatedAt: number }[] };
+    const summaries = data.projects.map((s) => ({ ...s, turns: [] as Turn[] }));
+    setProjects(summaries);
+    const first = summaries[0];
+    if (first) {
+      const detail = await fetchProjectDetail(first.id);
+      setActiveId(first.id);
+      setTurns(detail);
+      setProjects((prev) => prev.map((p) => (p.id === first.id ? { ...p, turns: detail } : p)));
+    }
+  }
+
+  async function fetchProjectDetail(id: string): Promise<Turn[]> {
+    const res = await fetch(`/api/projects/${id}`);
+    if (!res.ok) return [];
+    const data = (await res.json()) as { project: { turns: Turn[] } };
+    return data.project.turns ?? [];
+  }
+
+  // Persist whenever turns change: fold current turns into the active project,
+  // then debounce a save to the server.
   useEffect(() => {
-    if (!hydrated.current) return;
+    if (!hydrated.current || !user) return;
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' });
 
     setProjects((prev) => {
@@ -180,7 +165,16 @@ export default function Home() {
           p.id === id ? { ...p, turns, title: deriveProjectTitle(turns), updatedAt: Date.now() } : p,
         );
       }
-      persistStore({ projects: next, activeId: id });
+      // Debounced server save of the active project.
+      const target = next.find((p) => p.id === id);
+      if (target) {
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        saveTimer.current = setTimeout(() => {
+          saveProjectToServer(target).then((ok) => {
+            if (!ok) setUser(null); // session expired → back to AuthGate
+          });
+        }, 600);
+      }
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -374,31 +368,55 @@ export default function Home() {
     setDrawerOpen(false);
   }
 
-  function switchProject(id: string) {
+  async function switchProject(id: string) {
     const p = projects.find((x) => x.id === id);
     if (!p) return;
     setActiveId(id);
-    setTurns(p.turns);
     setError('');
     setLastFailed(null);
     setInput('');
     setPendingImages([]);
     setPinnedTurn(null);
-    setMobileView(p.turns.some((t) => t.kind === 'design') ? 'result' : 'chat');
     setDrawerOpen(false);
+    // Load turns lazily from the server if this summary hasn't been fetched yet.
+    let detail = p.turns;
+    if (!detail.length) {
+      detail = await fetchProjectDetail(id);
+      setProjects((prev) => prev.map((x) => (x.id === id ? { ...x, turns: detail } : x)));
+    }
+    setTurns(detail);
+    setMobileView(detail.some((t) => t.kind === 'design') ? 'result' : 'chat');
   }
 
   function deleteProject(id: string) {
     if (!confirm('이 프로젝트를 삭제할까요?')) return;
+    fetch(`/api/projects/${id}`, { method: 'DELETE' }); // fire-and-forget; UI updates immediately
     setProjects((prev) => {
       const next = prev.filter((p) => p.id !== id);
-      const nextActive = id === activeId ? (next[0]?.id ?? null) : activeId;
-      persistStore({ projects: next, activeId: nextActive });
       if (id === activeId) {
-        setActiveId(nextActive);
-        setTurns(next[0]?.turns ?? []);
+        const nextActive = next[0] ?? null;
+        setActiveId(nextActive?.id ?? null);
+        setTurns(nextActive?.turns ?? []);
       }
       return next;
+    });
+  }
+
+  async function logout() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    setUser(null);
+    setProjects([]);
+    setActiveId(null);
+    setTurns([]);
+    setDrawerOpen(false);
+  }
+
+  // Called by AuthGate after a successful login/register.
+  function handleAuthed(u: AuthUser) {
+    setUser(u);
+    hydrated.current = false; // avoid a spurious save before projects load
+    loadProjectsFromServer().finally(() => {
+      hydrated.current = true;
     });
   }
 
@@ -409,6 +427,10 @@ export default function Home() {
   }
 
   const started = turns.length > 0;
+
+  // Auth gating: nothing while checking, login screen when logged out.
+  if (user === undefined) return <div className="app auth-loading" aria-busy="true" />;
+  if (user === null) return <AuthGate onAuthed={handleAuthed} />;
 
   return (
     <div className="app">
@@ -433,6 +455,12 @@ export default function Home() {
           </button>
           <button className="btn-ghost" onClick={newProject}>
             + 새 대화
+          </button>
+          <span className="user-chip" title={user.username}>
+            {user.username}
+          </span>
+          <button className="btn-ghost" onClick={logout}>
+            로그아웃
           </button>
         </div>
       </header>

@@ -5,7 +5,15 @@ NH농협 사내 화면 설계 도우미. 자연어 요구사항을 대화로 다
 - 좌측: 화면 구성 · 컴포넌트 · 사용자 플로우 · 디자인 노트에 더해 **데이터 필드 명세 · 권한 매트릭스 · 예외/오류 · 연계 시스템 · 비기능 요구**까지 담긴 실무형 정의서
 - 우측: 실제 렌더링되는 와이어프레임 (iframe, 클릭 무력화된 정적 목업)
 
-주요 기능: 대화형 반복 개선(되묻기·다중 선택 포함), 레퍼런스 이미지 첨부, 8종 화면 유형(list/detail/form/dashboard/auth/approval/wizard/report), 다중 프로젝트 히스토리, 버전 되돌리기, **응답 스트리밍(생성 과정 실시간 표시)**, MD/HTML 내보내기.
+주요 기능: 대화형 반복 개선(되묻기·다중 선택 포함), 레퍼런스 이미지 첨부, 8종 화면 유형(list/detail/form/dashboard/auth/approval/wizard/report), **회원가입·로그인(계정별 서버 저장)**, 다중 프로젝트 히스토리, 버전 되돌리기, **응답 스트리밍(생성 과정 실시간 표시)**, MD/HTML 내보내기.
+
+## 회원·저장 (알파)
+
+- **자체 ID/PW 회원**(가입/로그인/로그아웃). 비밀번호는 Node 내장 `crypto.scrypt`로 해싱, 세션은 DB 토큰 + httpOnly 쿠키.
+- 프로젝트/대화는 **로그인한 계정별로 서버 SQLite에 저장** → 기기·브라우저가 바뀌어도 복원. (이전 localStorage 저장은 제거됨.)
+- DB: Node 내장 `node:sqlite`(의존성 0, Node 22+). 파일 위치는 `DATABASE_PATH`(기본 `./data/designmate.db`).
+- ⚠️ **Render 무료 티어 디스크는 휘발성**이라 재배포/재시작 시 계정·프로젝트가 초기화된다(알파 테스트 수용). 영속이 필요하면 Persistent Disk를 마운트하고 `DATABASE_PATH`를 그 경로로 지정(코드 변경 불필요).
+- 알파 수준 보안이며 정식 출시엔 사내 SSO·rate limit·HTTPS 강제·감사가 별도로 필요.
 
 ## 기술 스택
 
@@ -56,30 +64,38 @@ npm start   # PORT 환경변수 자동 사용
 
 ```
 app/
-  page.tsx                 # 입력창 + 정의서/와이어프레임 2분할 뷰
-  api/generate/route.ts    # POST { prompt } → { spec, wireframeHtml, specMarkdown }
+  page.tsx                 # 로그인 게이트 + 입력창 + 정의서/와이어프레임 2분할 뷰
+  api/generate/route.ts    # POST { messages } → { spec, wireframeHtml, specMarkdown } (SSE 지원)
+  api/auth/                # register / login / logout / me (자체 ID/PW 세션)
+  api/projects/            # GET 목록 / [id] GET·PUT·DELETE (계정별 소유권)
 lib/
+  db.ts                    # node:sqlite 싱글턴 + 스키마 부트스트랩
+  auth.ts                  # scrypt 해싱 + DB 세션 + getSessionUser
+  projects.ts              # 계정 스코프 프로젝트 CRUD (turns는 JSON blob)
   engine/
     index.ts               # getEngine() — GROQ_API_KEY 있으면 Groq, 없으면 규칙 엔진
-    groqEngine.ts          # Groq(OpenAI 호환) 호출 → JSON spec+html
+    groqEngine.ts          # Groq(OpenAI 호환) 호출 → spec + html (스트리밍/국소수정)
     ruleEngine.ts          # 오프라인 폴백
   templates/               # 규칙 엔진용 화면 유형별 HTML/CSS 목업 생성기
   spec.ts                  # DesignSpec → 정의서 마크다운
   markdown.ts              # 정의서 마크다운 → HTML (경량 렌더러)
-components/                # SpecPanel, WireframePreview (입력은 page.tsx 내장)
+components/                # SpecPanel, WireframePreview, AuthGate
+data/                      # (gitignore) SQLite 파일
 ```
 
 ## 환경변수
 
 `.env.local` (로컬) 또는 Render 대시보드에 설정한다. 키가 없으면 자동으로 규칙 엔진으로 폴백한다.
 
-| 변수                | 필수 | 기본값                | 설명                  |
-| ------------------- | ---- | --------------------- | --------------------- |
-| `GROQ_API_KEY`      | 권장 | —                     | 없으면 규칙 엔진 폴백 |
-| `GROQ_HTML_MODEL`   | 선택 | `openai/gpt-oss-120b` | 플래너·HTML 작성 모델 |
-| `GROQ_VISION_MODEL` | 선택 | `qwen/qwen3.6-27b`    | 이미지 분석 모델      |
+| 변수                | 필수 | 기본값                 | 설명                  |
+| ------------------- | ---- | ---------------------- | --------------------- |
+| `GROQ_API_KEY`      | 권장 | —                      | 없으면 규칙 엔진 폴백 |
+| `GROQ_HTML_MODEL`   | 선택 | `openai/gpt-oss-120b`  | 플래너·HTML 작성 모델 |
+| `GROQ_VISION_MODEL` | 선택 | `qwen/qwen3.6-27b`     | 이미지 분석 모델      |
+| `DATABASE_PATH`     | 선택 | `./data/designmate.db` | SQLite 파일 경로      |
 
-> ⚠️ `.env.local`은 gitignore 대상 — API 키를 커밋하지 말 것.
+> ⚠️ `.env.local`과 `data/`는 gitignore 대상 — API 키·DB 파일을 커밋하지 말 것.
+> Node 22+ 필요(`node:sqlite` 내장 모듈 사용).
 
 ## 다른 LLM으로 교체하기
 

@@ -130,6 +130,118 @@ button {
 .head-actions {
   display: flex;
   gap: 8px;
+  align-items: center;
+}
+.user-chip {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--nh-green-dark);
+  background: var(--nh-green-soft);
+  border-radius: 999px;
+  padding: 4px 10px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* auth gate (login / register) */
+.auth-loading {
+  background: var(--bg);
+}
+.auth-wrap {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  padding: 24px;
+}
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px 24px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
+}
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.auth-brand h1 {
+  font-size: 20px;
+}
+.auth-brand p {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+.auth-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+.auth-tab {
+  flex: 1;
+  padding: 9px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 10px;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+.auth-tab.on {
+  border-color: var(--nh-green);
+  background: var(--nh-green-soft);
+  color: var(--nh-green-dark);
+  font-weight: 700;
+}
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.auth-field span {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.auth-field input {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 12px;
+  font-size: 16px; /* 16px avoids iOS zoom-on-focus */
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--text);
+}
+.auth-field input:focus {
+  outline: none;
+  border-color: var(--nh-green);
+}
+.auth-submit {
+  margin-top: 4px;
+}
+.auth-error {
+  font-size: 13px;
+  color: #fff;
+  background: var(--danger, #c0392b);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.auth-note {
+  margin-top: 16px;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.5;
 }
 
 /* project drawer */

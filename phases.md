@@ -364,3 +364,33 @@ NH농협 사내 화면 설계 도우미의 개선 작업을 시간순으로 누�
 - `typecheck` / `lint` / `format:check` / `build` 모두 통과 ✓
 
 > 참고: 코드 직접 편집(A안)은 코딩 문외한 사용자에 부적합하다는 판단으로 채택하지 않음. 국소 수정 정확도는 LLM 의존이라 드물게 무관한 부분이 바뀔 수 있어, 실패 시 버전 되돌리기(A2)로 복구 가능.
+
+---
+
+## Phase 11 — 서버 DB(SQLite) + 자체 회원/인증 (2026-08-09)
+
+**배경:** 저장이 100% localStorage라 기기 바뀌면 유실, 사용자 구분 없음. 알파테스트 수준으로 **자체 ID/PW 회원 + 계정별 서버 영속**을 도입(보고서 관문 B4 영속화 + B1 인증의 알파 버전). 정식 출시·심의 전제 아님.
+
+### 결정
+
+- DB: **`node:sqlite`(Node 22+ 내장, 의존성 0)**. 로컬 Node v24 동작 실측. `better-sqlite3` 대신 선택(의존성 지양). 문제 시 `lib/db.ts` 한 파일만 교체하면 됨.
+- 인증: 내장 `crypto.scrypt` 해싱 + **DB 세션 테이블 + httpOnly 쿠키**(JWT 아님 — 로그아웃 무효화 단순). 임의 아이디(3~40자).
+- turns는 정규화 없이 `turns_json` blob 저장(스키마 불변).
+
+### 변경
+
+- **신규** `lib/db.ts`(node:sqlite 싱글턴, WAL·FK·busy_timeout, `CREATE TABLE IF NOT EXISTS` users/sessions/projects, globalThis 캐싱), `lib/auth.ts`(hashPassword/verifyPassword, 세션 CRUD, getSessionUser), `lib/projects.ts`(계정 스코프 CRUD + 서버측 turns 트리밍).
+- **신규 route** `app/api/auth/{register,login,logout,me}`, `app/api/projects/route.ts`(GET 목록)·`[id]/route.ts`(GET/PUT/DELETE). 전부 `getSessionUser` + SQL `WHERE user_id`로 소유권 강제. DB/쿠키 접근 route에 `export const dynamic='force-dynamic'`(빌드 정적수집 방지 — "database is locked" 해결).
+- **신규** `components/AuthGate.tsx`(로그인/회원가입 폼).
+- **수정** `app/page.tsx`: localStorage 계층 제거 → 부팅 시 `/api/auth/me`로 게이트, `/api/projects` 로드, turns 변경 시 디바운스(600ms) `PUT` 저장, 프로젝트 상세 lazy fetch, 삭제 API, 로그아웃, 헤더 사용자칩. 401 시 AuthGate 복귀.
+- **수정** `.gitignore`(data/), `package.json`(engines.node≥22.5, @types/node 22 — node:sqlite 타입), `.env.local.example`/README/CLAUDE.md 문서.
+- **미변경**: 엔진·캐시·생성 로직, `/api/generate`(인증 미부착 — 과설계 금지).
+
+### 검증
+
+- `typecheck` / `lint` / `build`(7개 route 등록) 통과 ✓
+- **서버 curl E2E**(격리 DB): 가입(200+쿠키)→me→PUT 저장→목록→상세 복원→**타계정 접근 404**(소유권)→미로그인 401→중복가입 409→로그아웃 후 me=null 전부 통과 ✓
+- **브라우저 E2E**(CDP, 실키): AuthGate 노출→회원가입→헤더 사용자칩→화면 생성(자동 저장)→로그아웃→**재로그인 시 프로젝트/정의서 복원**, "프로젝트 (1)" ✓
+- **재시작 durability**: 서버 종료 후 같은 DB로 재기동 → 계정 로그인·프로젝트 유지 확인(파일 영속) ✓
+
+> 리스크: Render 무료 디스크 휘발성(재배포 시 초기화, 알파 수용 — `DATABASE_PATH`로 Persistent Disk 전환 가능). node:sqlite 실험적 API. 보안은 알파 수준(정식엔 SSO·rate limit·감사 별도).
