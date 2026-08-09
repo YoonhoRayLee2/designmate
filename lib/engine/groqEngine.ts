@@ -40,10 +40,23 @@ const PLANNER_PROMPT = `당신은 NH농협 사내 화면 설계를 돕는 시니
 
 ${NH_CONTEXT}
 
-[되묻기 규칙]
-핵심 정보(사용 주체, 주요 목적, 필수 항목/데이터, 화면 유형)가 빠져 있고 추측하면 결과가 크게 달라질 때만 되묻는다.
-- 되물을 때는 mode="questions", 2~4개 객관식 질문(각 보기 2~4개).
-- 이미 명확하거나 합리적 기본값이 있으면 묻지 말고 mode="design".
+[되묻기 규칙 — 적극적으로 되묻는다]
+더 상세하고 정확한 UI/UX 정의서·와이어프레임을 만들기 위해, 첫 설계 전에 **적극적으로 되묻는다.** 그냥 추측해서 만들지 말고, 아래 중 불명확한 게 하나라도 있으면 mode="questions"로 되묻는다:
+- 사용 주체(누가 쓰는가: 영업점 직원/지점장/본부/조합원 등)
+- 주요 목적·핵심 업무(조회/등록/승인/집계 등)
+- 화면에 꼭 필요한 데이터 항목·컬럼·입력 필드
+- 화면 유형(목록/상세/폼/대시보드/승인·결재/마법사/리포트 등)
+- 규모·범위를 가르는 조건(검색/필터 유무, 권한 구분, 상태값, 예외 흐름 등)
+
+규칙:
+- 되물을 때는 mode="questions", **3~6개** 객관식 질문(각 보기 2~5개).
+- **질문은 반드시 서로 다른 축을 다룬다.** 같은 걸 다르게 묻지 말고, 아래 축들 중 이 화면에 의미 있는 것을 폭넓게 커버해 UX/요구사항을 상세히 확정한다:
+  ① 사용 주체/역할  ② 핵심 목적·주요 작업  ③ 표시/입력할 데이터 항목·컬럼  ④ 화면 유형·레이아웃  ⑤ 검색·필터·정렬 조건  ⑥ 상태값·구분(예: 승인/대기/반려)  ⑦ 권한별 가능한 액션  ⑧ 예외·오류 상황  ⑨ 연계 시스템/데이터 출처
+- 각 보기는 구체적이고 즉시 고를 수 있게. 합리적 기본값엔 "(기본)" 힌트를 붙여도 좋다.
+- **단, 아래 경우엔 되묻지 말고 바로 mode="design"**:
+  · 요청이 이미 충분히 구체적이다(주체·목적·주요 항목이 사실상 다 드러남).
+  · 대화 이력에 이미 되물은 질문(assistant의 "[질문함]")이 있다 — 되묻기는 **최대 1라운드**. 두 번째부턴 가진 정보로 설계한다.
+  · 사용자가 "그냥 만들어", "알아서 해" 등 바로 생성을 원한다.
 - 사용자가 이전 턴에 이미 답한 것은 다시 묻지 않는다.
 - 각 질문에 multiSelect(불리언)를 지정한다. 여러 개를 동시에 고르는 게 자연스러운 질문(예: "포함할 항목을 모두 고르세요", "필요한 기능")은 true, 하나만 골라야 하는 질문(예: 화면 유형·사용 주체 택1)은 false.
 
@@ -139,10 +152,10 @@ function coerceQuestions(raw: unknown): ClarifyingQuestion[] {
         ? q.options.filter((o: unknown): o is string => typeof o === 'string')
         : [];
       if (options.length < 2) return null;
-      return { question: q.question, options: options.slice(0, 4), multiSelect: q.multiSelect === true };
+      return { question: q.question, options: options.slice(0, 5), multiSelect: q.multiSelect === true };
     })
     .filter((q): q is ClarifyingQuestion => q !== null)
-    .slice(0, 4);
+    .slice(0, 6);
 }
 
 /** Keep only string entries of an array; drop everything else. */
@@ -509,7 +522,7 @@ async function planDesign(apiKey: string, req: GenerateRequest): Promise<PlanRes
     ? '\n\n[참고: 사용자가 레퍼런스 이미지를 첨부했다. 이미지는 별도 분석되어 반영되니, 텍스트만으로 판단해 되도록 mode="design"으로 진행하라.]'
     : '';
   const editHint = hasCurrentHtml
-    ? '\n\n[참고: 이미 만든 화면이 있다. 사용자의 마지막 지시가 그 화면의 일부만 바꾸는 국소 수정이면 mode="edit"으로 답하라(레이아웃/유형이 통째로 바뀌면 design).]'
+    ? '\n\n[참고: 이미 만든 화면이 있다(수정·개선 대화 중). 이때는 되묻지 말고 바로 반영하라. 마지막 지시가 화면 일부만 바꾸는 국소 수정이면 mode="edit", 레이아웃/유형이 통째로 바뀌면 mode="design". mode="questions"는 쓰지 않는다.]'
     : '';
   const plannerHint = imageHint + editHint;
 
@@ -543,7 +556,10 @@ async function planDesign(apiKey: string, req: GenerateRequest): Promise<PlanRes
     return { edit: { instruction: prompt, currentHtml: req.currentHtml as string, spec: req.currentSpec } };
   }
 
-  if (plan.mode === 'questions' && !plan.spec) {
+  // Cap clarifying questions at one round: if we've already asked (assistant
+  // "[질문함]") or a screen already exists, never ask again — design with what we have.
+  const alreadyAsked = req.messages.some((m) => m.role === 'assistant' && m.content.includes('[질문함]'));
+  if (plan.mode === 'questions' && !plan.spec && !alreadyAsked && !hasCurrentHtml) {
     const questions = coerceQuestions(plan.questions);
     if (questions.length) return { questions };
   }
