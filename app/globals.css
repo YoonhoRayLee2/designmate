@@ -240,6 +240,34 @@ button {
   display: none;
 }
 
+/* shared copyright / contact footer (all screens) */
+.app-footer {
+  font-size: 11px;
+  color: var(--text-ghost);
+  line-height: 1.5;
+}
+.app-footer a {
+  color: var(--text-faint);
+  text-decoration: none;
+}
+.app-footer a:hover {
+  color: var(--nh-green);
+}
+/* in the left rail: sits under the user footer, subtle divider */
+.rail-footer {
+  padding: 10px 14px 14px;
+  border-top: 1px solid var(--border);
+}
+/* in the login form pane */
+.auth-footer {
+  margin-top: 14px;
+}
+/* in the dashboard body */
+.dash-footer {
+  margin-top: 28px;
+  text-align: center;
+}
+
 /* buttons */
 .btn {
   background: var(--accent);

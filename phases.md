@@ -500,3 +500,20 @@ NH농협 사내 화면 설계 도우미의 개선 작업을 시간순으로 누�
 ### 판단
 
 - PDF 내보내기: 의존성 지양 원칙 + 알파 범위 고려해 **이번엔 스킵**(MD/HTML 유지). 필요 시 브라우저 인쇄→PDF(의존성 0)로 후속 가능.
+
+---
+
+## Phase 17 — 전 화면 copyright 푸터 (2026-08-09)
+
+**배경:** 모든 화면 하단에 저작권·연락처 표기 추가.
+
+### 변경 — `components/Footer.tsx`(신규), `AuthGate.tsx`, `app/page.tsx`, `app/globals.css`
+
+- **공용 `Footer` 컴포넌트**: "© 2026 NH농협 DesignMate · profittiger@nonghyup.com"(mailto 링크). `className`으로 위치별 스타일.
+- 배치: 로그인(폼 pane 하단), 메인 앱(좌측 레일 하단 — 데스크톱+모바일 드로어 공통), 대시보드(본문 하단). auth-loading(빈 화면)은 제외.
+- CSS: `.app-footer`(11px, 옅은 회색, 링크 hover 그린) + `.rail-footer`/`.auth-footer`/`.dash-footer` 위치별.
+
+### 검증
+
+- 로그인·메인(레일)·대시보드 푸터 노출 스크린샷/텍스트 확인 ✓
+- `lint`(0)/`typecheck`/`build` 통과 ✓

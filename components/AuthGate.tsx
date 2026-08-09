@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Footer from './Footer';
 
 export interface AuthUser {
   id: string;
@@ -132,6 +133,7 @@ export default function AuthGate({ onAuthed }: { onAuthed: (user: AuthUser) => v
             <p className="auth-note">
               알파 테스트 버전입니다. 계정·프로젝트는 서버에 저장돼 다른 기기에서도 이어집니다.
             </p>
+            <Footer className="auth-footer" />
           </div>
         </div>
       </div>

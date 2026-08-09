@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import SpecPanel from '@/components/SpecPanel';
 import WireframePreview from '@/components/WireframePreview';
 import AuthGate, { type AuthUser } from '@/components/AuthGate';
+import Footer from '@/components/Footer';
 import type { ChatMessage, ClarifyingQuestion, EngineOutput, GenerateResult, StreamEvent } from '@/lib/engine/types';
 
 const EXAMPLES = [
@@ -550,6 +551,7 @@ export default function Home() {
             로그아웃
           </button>
         </div>
+        <Footer className="rail-footer" />
       </aside>
 
       <div className="main">
@@ -894,6 +896,7 @@ export default function Home() {
                 새 화면 만들기
               </button>
             </div>
+            <Footer className="dash-footer" />
           </div>
         </div>
       )}
